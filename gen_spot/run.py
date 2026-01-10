@@ -1,0 +1,853 @@
+import json
+import traceback
+import numpy as np
+from itertools import product
+import pandas as pd
+import pickle
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from multiprocessing import cpu_count
+import time
+from core import Simulator
+from base_func_lib import Domains
+import pandas as pd
+import numpy as np
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.formatting.rule import ColorScaleRule
+import os
+from datetime import datetime
+
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+
+class PKLToXLSXExporter:
+    def __init__(self, df, gen=None):
+        """
+        Initialize exporter với file PKL
+        
+        Args:
+            pkl_file_path (str): Đường dẫn tới file PKL
+        """
+        self.df = df
+        self.column_mapping = {
+            # Mapping từ tên cột gốc sang tên cột mới
+            'strategy': 'Strategy',
+            'freq': 'Frequency',
+            'fee': 'Fee',
+            'sharpe': 'Sharpe Ratio',
+            "hhi": "HHI",
+            'daily_sharpe': 'Daily Sharpe',
+            "psr": "PSR (%)",
+            "dsr": "DSR (%)",
+            "E": "E", 
+            'mdd': 'MDD',
+            'mddPct': 'MDD (%)',
+            'ppc': 'PPC',
+            'tvr': 'TVR',
+            "netProfit": 'Net Profit',
+            'start': 'Start',
+            'end': 'End',
+            'total_return': 'Total Return (%)',
+            'annual_return': 'Annual Return (%)',
+            'volatility': 'Volatility (%)',
+            'win_rate': 'Win Rate (%)',
+            'profit_factor': 'Profit Factor',
+            'total_trades': 'Total Trades',
+            'avg_trade_return': 'Avg Trade Return (%)',
+            'best_trade': 'Best Trade (%)',
+            'worst_trade': 'Worst Trade (%)',
+            'consecutive_wins': 'Max Consecutive Wins',
+            'consecutive_losses': 'Max Consecutive Losses',
+            'calmar_ratio': 'Calmar Ratio',
+            'sortino_ratio': 'Sortino Ratio',
+            'params': 'Parameters'
+        }
+        if gen == "1_1":
+            self.column_mapping['threshold'] = 'Threshold'
+        elif gen == "1_2":
+            self.column_mapping['upper'] = 'Upper'
+            self.column_mapping['lower'] = 'Lower'
+        elif gen == "1_3":
+            self.column_mapping['score'] = 'Score'
+            self.column_mapping['entry'] = 'Entry'
+            self.column_mapping['exit'] = 'Exit'
+        elif gen == "1_4":
+            self.column_mapping['entry'] = 'Entry'
+            self.column_mapping['exit'] = 'Exit'
+            self.column_mapping['smooth'] = 'Smooth'
+    
+    def format_dataframe(self):
+        """
+        Format và rename columns, sort data
+        """
+        if self.df is None:
+            print("No data loaded. Please run load_data() first.")
+            return False
+        
+        # Tìm tất cả columns có trong data
+        available_columns = list(self.df.columns)
+        print(f"Available columns: {available_columns}")
+        
+        # Tách columns thành các nhóm
+        mapped_columns = []  # Columns có trong mapping
+        param_columns = []   # Columns là parameters
+        other_columns = []   # Columns khác
+        
+        for col in available_columns:
+            if col in self.column_mapping:
+                mapped_columns.append(col)
+            elif col.startswith('param_') or col in ['window', 'factor']:
+                # Các tên parameter phổ biến
+                param_columns.append(col)
+            else:
+                other_columns.append(col)
+        
+        print(f"Mapped columns: {mapped_columns}")
+        print(f"Parameter columns: {param_columns}")
+        print(f"Other columns: {other_columns}")
+        
+        # Chọn columns để giữ lại (mapped + param + some others)
+        columns_to_keep = mapped_columns + param_columns
+        
+        # Thêm các columns khác quan trọng nếu có
+        important_other_cols = ['params']  # Giữ lại params gốc nếu có
+        for col in important_other_cols:
+            if col in other_columns:
+                columns_to_keep.append(col)
+        
+        # Chỉ lấy columns có trong data
+        self.df = self.df[columns_to_keep].copy()
+        for drop_col in ['fee', 'start', 'end']:
+            if drop_col in self.df.columns:
+                self.df.drop(columns=[drop_col], inplace=True)
+        # Rename các columns có mapping
+        rename_dict = {k: v for k, v in self.column_mapping.items() if k in self.df.columns}
+        self.df.rename(columns=rename_dict, inplace=True)
+        
+        # Rename parameter columns để dễ đọc hơn
+        param_rename_dict = {}
+        for col in param_columns:
+            if col.startswith('param_'):
+                new_name = f"Param: {col[6:].title()}"  # Remove 'param_' prefix và capitalize
+            else:
+                new_name = f"Param: {col.title()}"
+            param_rename_dict[col] = new_name
+        
+        if param_rename_dict:
+            self.df.rename(columns=param_rename_dict, inplace=True)
+            print(f"Parameter columns renamed: {param_rename_dict}")
+        # Build lại cột Strategy
+        param_cols_in_df = [col for col in self.df.columns if col.startswith("Param: ")]
+        cols_for_strategy = []
+        if 'Frequency' in self.df.columns:
+            cols_for_strategy.append(self.df['Frequency'].round(4).astype(str))
+        if 'Inertia' in self.df.columns:
+            cols_for_strategy.append(self.df['Inertia'].round(4).astype(str))
+        if "Threshold" in self.df.columns:
+            cols_for_strategy.append(self.df['Threshold'].round(4).astype(str))
+        if 'Upper' in self.df.columns:
+            cols_for_strategy.append(self.df['Upper'].round(4).astype(str))
+        if 'Lower' in self.df.columns:
+            cols_for_strategy.append(self.df['Lower'].astype(str))
+        if 'Velocity' in self.df.columns:
+            cols_for_strategy.append(self.df['Velocity'].round(4).astype(str))
+        if 'Score' in self.df.columns:
+            cols_for_strategy.append(self.df['Score'].round(4).astype(str))
+        if 'Entry' in self.df.columns:
+            cols_for_strategy.append(self.df['Entry'].round(4).astype(str))
+        if 'Exit' in self.df.columns:
+            cols_for_strategy.append(self.df['Exit'].round(4).astype(str))
+        if 'Smooth' in self.df.columns:
+            cols_for_strategy.append(self.df['Smooth'].round(4).astype(str))   
+        for col in param_cols_in_df:
+            cols_for_strategy.append(self.df[col].round(4).astype(str))
+
+        if cols_for_strategy:
+            self.df['Strategy'] = cols_for_strategy[0]
+            for col_series in cols_for_strategy[1:]: 
+                self.df['Strategy'] = self.df['Strategy'] + "_" + col_series
+
+        # Xử lý parameters column cũ nếu vẫn còn
+        if 'params' in self.df.columns:
+            self.df['params'] = self.df['params'].apply(
+                lambda x: str(x) if isinstance(x, dict) else str(x)
+            )
+        
+        # Convert percentage columns
+        percentage_columns = [
+            'Total Return (%)', 'Annual Return (%)',
+            'Volatility (%)', 'Win Rate (%)', 'Avg Trade Return (%)',
+            'Best Trade (%)', 'Worst Trade (%)',
+            
+        ]
+        
+        for col in percentage_columns:
+            if col in self.df.columns:
+                # Chuyển từ decimal sang percentage (0.1 -> 10%)
+                self.df[col] = self.df[col] * 100
+
+        if 'PPC' in self.df.columns:
+            # PPC format as currency/decimal
+            self.df['PPC'] = self.df['PPC'].round(4)
+
+        # Build sort columns list
+        sort_columns = []
+        sort_ascending = []
+        
+        # Primary sort columns
+        primary_sorts = [
+            ('base Strategy', True),
+            ('Inertia', True), 
+            ('Threshold', True),
+            ('Upper', True),
+            ('Lower', True),
+            ('Velocity', True),
+            ('Score', True),
+            ('Entry', True),
+            ('Exit', True),
+            ('Frequency', True),
+            ('Smooth', True),
+            
+        ]
+        
+        for col_name, ascending in primary_sorts:
+            if col_name in self.df.columns:
+                sort_columns.append(col_name)
+                sort_ascending.append(ascending)
+        
+        # Add parameter columns to sort
+        param_cols_in_df = [col for col in self.df.columns if col.startswith('Param: ')]
+        param_cols_in_df.sort()  # Sort parameter names basebetically
+        
+        for param_col in param_cols_in_df:
+            sort_columns.append(param_col)
+            sort_ascending.append(True)  # Ascending for parameters
+        
+        print(f"Sort order: {sort_columns}")
+        
+        if sort_columns:
+            # Handle mixed data types in parameter columns
+            for col in param_cols_in_df:
+                if col in self.df.columns:
+                    # Convert to string for consistent sorting, then back to numeric if possible
+                    try:
+                        # Try to convert to numeric first
+                        self.df[col] = pd.to_numeric(self.df[col], errors='ignore')
+                    except:
+                        pass
+            
+            self.df = self.df.sort_values(sort_columns, ascending=sort_ascending)
+            self.df.reset_index(drop=True, inplace=True)
+        
+        print(f"Data formatted and sorted by: {sort_columns}")
+        return True
+    
+    def apply_excel_formatting(self, worksheet):
+        """
+        Áp dụng formatting cho Excel worksheet
+        """
+        # Header formatting
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Border style
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Apply header formatting
+        for cell in worksheet[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = thin_border
+        
+        # Data formatting
+        data_alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Apply formatting to all data cells
+        for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row,
+                                     min_col=1, max_col=worksheet.max_column):
+            for cell in row:
+                cell.alignment = data_alignment
+                cell.border = thin_border
+        
+        # Auto-adjust column widths
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            
+            adjusted_width = min(max_length + 2, 50)  # Max width 50
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        # Apply conditional formatting cho các metrics quan trọng
+        metrics_to_format = [
+            ('Sharpe Ratio', 'sharpe'),
+            ('MDD (%)', 'mddPct'),
+            ('PPC', 'ppc'),
+            ('TVR', 'tvr')
+        ]
+        
+        for metric_name, metric_type in metrics_to_format:
+            metric_col = None
+            for idx, cell in enumerate(worksheet[1], 1):
+                if cell.value == metric_name:
+                    metric_col = idx
+                    break
+            
+            if metric_col:
+                col_letter = worksheet.cell(row=1, column=metric_col).column_letter
+                range_str = f"{col_letter}2:{col_letter}{worksheet.max_row}"
+                
+                if metric_type == 'sharpe':
+                    # Sharpe Ratio: red (low) -> yellow (medium) -> green (high)
+                    color_scale_rule = ColorScaleRule(
+                        start_type='num', start_value=0, start_color='F8696B',
+                        mid_type='num', mid_value=2, mid_color='FFEB9C',
+                        end_type='num', end_value=5, end_color='63BE7B'
+                    )
+                elif metric_type == 'mddPct':
+                    # Max Drawdown: green (low) -> yellow (medium) -> red (high)
+                    color_scale_rule = ColorScaleRule(
+                        start_type='num', start_value=0, start_color='63BE7B',
+                        mid_type='num', mid_value=50, mid_color='FFEB9C',
+                        end_type='num', end_value=100, end_color='F8696B'
+                    )
+                elif metric_type == 'ppc':
+                    # PPC: red (low/negative) -> yellow (neutral) -> green (high)
+                    color_scale_rule = ColorScaleRule(
+                        start_type='min', start_color='F8696B',
+                        mid_type='num', mid_value=0, mid_color='FFEB9C',
+                        end_type='max', end_color='63BE7B'
+                    )
+                elif metric_type == 'tvr':
+                    # TVR: green (low) -> yellow (medium) -> red (high)
+                    color_scale_rule = ColorScaleRule(
+                        start_type='min', start_color='63BE7B',
+                        mid_type='percentile', mid_value=50, mid_color='FFEB9C',
+                        end_type='max', end_color='F8696B'
+                    )
+                
+                worksheet.conditional_formatting.add(range_str, color_scale_rule)
+    
+    def export_to_xlsx(self, output_path=None):
+        """
+        Export data ra file XLSX với formatting
+        
+        Args:
+            output_path (str): Đường dẫn output file. Nếu None thì auto-generate
+        """
+        if self.df is None:
+            print("No data to export. Please run load_data() and format_dataframe() first.")
+            return False
+        
+        if output_path is None:
+            base_name = os.path.splitext(os.path.basename(self.pkl_file_path))[0]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = f"{base_name}_formatted_{timestamp}.xlsx"
+        
+        try:
+            print(f"Exporting to {output_path}")
+            
+            # Tạo workbook và worksheet
+            workbook = Workbook()
+            worksheet = workbook.active
+            worksheet.title = "Backtest Results"
+            
+            # Write data
+            for r in dataframe_to_rows(self.df, index=False, header=True):
+                worksheet.append(r)
+            
+            # Apply formatting
+            self.apply_excel_formatting(worksheet)
+            
+            # Save file
+            workbook.save(output_path)
+            print(f"Successfully exported {len(self.df)} records to {output_path}")
+            
+            # Print preview
+            self.print_data_preview()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error exporting to XLSX: {str(e)}")
+            return False
+    
+    def print_data_preview(self):
+        """
+        In preview của data
+        """
+        if self.df is None:
+            return
+        
+        print(f"\n{'='*80}")
+        print("DATA PREVIEW")
+        print(f"{'='*80}")
+        print(f"Shape: {self.df.shape}")
+        print(f"Columns: {list(self.df.columns)}")
+        print(f"\nFirst 5 rows:")
+        print(self.df.head().to_string())
+        
+        # Key metrics statistics
+        key_metrics = ['Sharpe Ratio', 'MDD (%)', 'PPC', 'TVR', "Net Profit"]
+        for metric in key_metrics:
+            if metric in self.df.columns:
+                print(f"\n{metric} Statistics:")
+                print(self.df[metric].describe())
+        
+        # Parameter columns summary
+        param_cols = [col for col in self.df.columns if col.startswith('Param: ')]
+        if param_cols:
+            print(f"\nParameter Columns Found: {len(param_cols)}")
+            for param_col in sorted(param_cols):
+                print(f"  - {param_col}: {self.df[param_col].nunique()} unique values")
+                if self.df[param_col].dtype in ['int64', 'float64']:
+                    print(f"    Range: {self.df[param_col].min()} - {self.df[param_col].max()}")
+                else:
+                    top_values = self.df[param_col].value_counts().head(3)
+                    print(f"    Top values: {dict(top_values)}")
+
+
+class ScanParams:
+    """
+    Ultra-optimized generator for base parameter scans.
+    """
+
+    def __init__(self, base_name, base_params, min_freq, max_freq, fee, gen=None):
+        self.base_params = base_params or {}
+        self.min_freq, self.max_freq = min_freq, max_freq
+        self.fee, self.gen= fee, gen
+        self.lst_reports = []
+        
+
+        self.lst_reports = self.gen_lst_reports(base_name)
+
+    # ---------- Param utilities ----------
+    @staticmethod
+    def gen_list():
+        return [round(i * 0.1, 1) for i in range(1, 10)]
+
+    def gen_band_list(self):
+        vals = self.gen_list()
+        return [(x, y) for x, y in product(vals + [1.0], vals) if x > y]
+    
+    def gen_smooth_list(self):
+        vals = [round(i * 0.1, 1) for i in range(1, 10)]
+        return [(x, y) for x, y in product(vals, vals) if x > y]
+    
+    def gen_score_list(self):
+        scores = [3, 4, 5, 6, 7, 8]
+        entries = [1, 2, 3, 4]
+        exits = [0, 1, 2]
+        return [(s, e1, e2) for s, e1, e2 in product(scores, entries, exits) if e1 > e2]
+        
+    def gen_params_combinations(self):
+        names, ranges = [], []
+        for k, v in self.base_params.items():
+            if isinstance(v, dict):
+                values = np.arange(v["start"], v["end"] + v["step"], v["step"])
+            elif isinstance(v, list):
+                values = v
+            else:
+                values = [v]
+            names.append(k)
+            ranges.append(values)
+        return [dict(zip(names, c)) for c in product(*ranges)]
+
+    # ---------- Core generator ----------
+    def gen_lst_reports(self, base_name):
+        freqs = range(self.min_freq, self.max_freq + 1,1)
+        params = self.gen_params_combinations()
+        gl = self.gen_list
+
+        # map structure: gen -> (extra_fields, value_generators)
+        map_gen = {
+            "1_1": (["threshold"], [gl()]),
+            "1_2": (["upper_lower"], [self.gen_band_list()]),
+            "1_3": (["score_entry_exit"], [self.gen_score_list()]),
+            "1_4": (["entry_exit", "smooth"], [self.gen_smooth_list(), [1,2,3,4]]),
+        }
+
+        if self.gen not in map_gen:
+            raise ValueError(f"Unsupported gen mode: {self.gen}")
+
+        keys, values = map_gen[self.gen]
+        combos = product([base_name], freqs, *values, params)
+        fee = self.fee
+        gen = self.gen
+
+        # Use list comprehension + tuple unpacking for speed
+        reports = []
+        append = reports.append
+        for c in combos:
+            base = {"baseName": c[0], "freq": c[1], "fee": fee, "params": c[-1]}
+
+            if gen == "1_1":
+                base.update({"threshold": c[2]})
+            elif gen == "1_2":
+                upper, lower = c[2]
+                base.update({"upper": upper, "lower": lower})
+            elif gen == "1_3":
+                score, entry, exit = c[2]
+                base.update({"score": score, "entry": entry, "exit": exit})
+            elif gen == "1_4":
+                entry, exit = c[2]
+                base.update({"entry": entry, "exit": exit, "smooth": c[3]})
+
+            append(base)
+
+        return reports
+
+
+
+def load_dic_freqs(source):
+    fn = "/home/ubuntu/thanh/data/dic_freq_alpha_base.pkl"
+    df_dict = pd.read_pickle(fn)
+
+    mapping = {
+        "hose500": "hose_Busd",
+        "fhose500": "F_hose_Busd",
+        "vn30": "vn30_Busd",
+        "fvn30": "F_vn30_Busd"
+    }
+
+    for key in df_dict.keys():
+        df = df_dict[key].copy()
+        df["based_col"] = 0
+
+        for col in source.split("_"):
+            if col in mapping:
+                df["based_col"] += df[mapping[col]]
+
+        df_dict[key] = df
+
+    return df_dict
+
+
+
+def run_single_backtest(config, dic_freqs, DIC_BASES,df_tick=None,gen=None,start=None,end=None):
+    """
+    Chạy backtest cho một config duy nhất
+    """
+    try:
+        gen_params = {}
+        if gen == "1_3":
+            gen_params['score'] = config['score']
+            gen_params['entry'] = config['entry']
+            gen_params['exit'] = config['exit']
+        elif gen == "1_2":
+            gen_params['upper'] = config['upper']
+            gen_params['lower'] = config['lower']
+        elif gen == "1_1":
+            gen_params['threshold'] = config['threshold']
+        elif gen == "1_4":
+            gen_params['entry'] = config['entry']
+            gen_params['exit'] = config['exit']
+            gen_params['smooth'] = config['smooth']
+
+        bt = Simulator(
+            base_name=config['baseName'],
+            freq=config['freq'],
+            gen_params=gen_params,
+            fee=config['fee'],
+            df_base=dic_freqs[config['freq']].copy(),
+            params=config.get('params', {}),
+            DIC_BASES=DIC_BASES,
+            df_tick=df_tick.copy() if df_tick else None,
+            gen=gen,
+            start=start,
+            end=end
+        )
+        bt.compute_signal()
+        bt.compute_position()
+        bt.compute_tvr_and_fee()
+        bt.compute_profits()
+        bt.compute_performance(start=start, end=end)
+        
+        report_with_params = bt.report.copy()
+        
+
+        
+        params = config.get('params', {})
+        for param_name, param_value in params.items():
+            report_with_params[f"param_{param_name}"] = param_value
+        # print(f"Report", report_with_params['sharpe'])
+        return report_with_params
+    except Exception as e:
+        print(f"Error in config {config}: {str(e)}")
+        traceback.print_exc()
+
+
+def run_backtest_batch(configs_batch, dic_freqs, DIC_BASES, df_tick=None,start=None,end=None,gen=None):
+    """
+    Chạy backtest cho một batch configs (để tối ưu overhead của multiprocessing)
+    """
+    batch_results = []
+    for config in configs_batch:
+        result = run_single_backtest(config, dic_freqs, DIC_BASES, df_tick=df_tick,start=start,end=end,gen=gen)
+        if result is not None:
+            batch_results.append(result)
+            
+    return batch_results
+
+
+def split_list_into_batches(lst, batch_size):
+    """
+    Chia list thành các batches nhỏ hơn
+    """
+    for i in range(0, len(lst), batch_size):
+        yield lst[i:i + batch_size]
+
+
+class MultiThreadScanner:
+    def __init__(self, n_workers=None, use_processes=True, batch_size=10):
+        """
+        n_workers: số worker threads/processes. Nếu None thì dùng CPU count
+        use_processes: True để dùng ProcessPoolExecutor, False để dùng ThreadPoolExecutor
+        batch_size: số configs để group lại thành 1 batch (giảm overhead)
+        """
+        self.n_workers = n_workers or cpu_count()
+        self.use_processes = use_processes
+        self.batch_size = batch_size
+        self.executor_class = ProcessPoolExecutor if use_processes else ThreadPoolExecutor
+
+    def run_parallel_backtest(self, lst_configs, dic_freqs, DIC_BASES, df_tick=None,gen=None,start=None,end=None):
+        """
+        Chạy backtest song song cho tất cả configs
+        """
+        print(f"Running parallel backtest with {self.n_workers} {'processes' if self.use_processes else 'threads'}")
+        print(f"Total configs: {len(lst_configs)}")
+        
+        # Chia configs thành batches để giảm overhead
+        config_batches = list(split_list_into_batches(lst_configs, self.batch_size))
+        print(f"Split into {len(config_batches)} batches of size {self.batch_size}")
+        
+        lst_passed = []
+        completed_batches = 0
+        total_configs_processed = 0
+        
+        start_time = time.time()
+        batch_times = []  # Lưu thời gian của từng batch
+        
+        with self.executor_class(max_workers=self.n_workers) as executor:
+            # Submit tất cả batches với thời gian bắt đầu
+            future_to_batch_info = {}
+            for i, batch in enumerate(config_batches):
+                future = executor.submit(run_backtest_batch, batch, dic_freqs, DIC_BASES,df_tick=df_tick,gen=gen,start=start,end=end)
+                future_to_batch_info[future] = {
+                    'batch_idx': i,
+                    'batch_size': len(batch),
+                    'submit_time': time.time()
+                }
+            
+            # Collect results khi hoàn thành
+            for future in as_completed(future_to_batch_info):
+                batch_info = future_to_batch_info[future]
+                batch_idx = batch_info['batch_idx']
+                batch_size = batch_info['batch_size']
+                batch_start_time = batch_info['submit_time']
+                try:
+                    batch_completion_time = time.time()
+                    batch_duration = batch_completion_time - batch_start_time
+                    batch_times.append(batch_duration)
+                    
+                    batch_results = future.result()
+                    
+                    if batch_results:
+                        lst_passed.extend(batch_results)
+                    
+                    completed_batches += 1
+                    total_configs_processed += batch_size
+                    progress = completed_batches / len(config_batches) * 100
+                    
+                    # Tính toán thống kê tốc độ
+                    configs_per_second = batch_size / batch_duration
+                    avg_batch_time = sum(batch_times) / len(batch_times)
+                    
+                    # Ước tính thời gian còn lại
+                    remaining_batches = len(config_batches) - completed_batches
+                    estimated_remaining_time = remaining_batches * avg_batch_time
+                    
+                    print(f"Batch {batch_idx + 1:3d}/{len(config_batches)} completed in {batch_duration:5.1f}s "
+                            f"({configs_per_second:4.1f} configs/s) - "
+                            f"Found {len(batch_results):2d}/{batch_size} passed - "
+                            f"Progress: {total_configs_processed:4d}/{len(lst_configs)} configs ({progress:5.1f}%) - "
+                            f"Total passed: {len(lst_passed):3d} - "
+                            f"ETA: {estimated_remaining_time:5.1f}s")
+                except Exception as e:
+                    print(f"Error in batch {batch_idx}: {str(e)}")
+                    traceback.print_exc()
+            
+        
+        total_time = time.time() - start_time
+        
+        # Thống kê chi tiết
+        print(f"\n{'='*80}")
+        print(f"PERFORMANCE SUMMARY")
+        print(f"{'='*80}")
+        print(f"Total execution time: {total_time:.1f} seconds ({total_time/60:.1f} minutes)")
+        print(f"Total configs processed: {total_configs_processed:,}")
+        print(f"Total configs passed: {len(lst_passed):,}")
+        print(f"Success rate: {len(lst_passed)/total_configs_processed*100:.2f}%")
+        print(f"Average processing speed: {total_configs_processed/total_time:.1f} configs/second")
+        print(f"Average batch time: {sum(batch_times)/len(batch_times):.2f}s")
+        print(f"Fastest batch: {min(batch_times):.2f}s")
+        print(f"Slowest batch: {max(batch_times):.2f}s")
+        print(f"Batch time std dev: {np.std(batch_times):.2f}s")
+        
+        if self.use_processes:
+            theoretical_speedup = self.n_workers
+            actual_speedup = total_configs_processed / total_time / (total_configs_processed / total_time / self.n_workers)
+            efficiency = actual_speedup / theoretical_speedup * 100
+            print(f"Theoretical speedup: {theoretical_speedup}x")
+            print(f"Parallel efficiency: {efficiency:.1f}%")
+        
+        return lst_passed
+
+def get_drive_service():
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+    CREDENTIAL_FILE = "/home/ubuntu/nevir/credentials.json"
+    creds = None
+    if os.path.exists('/home/ubuntu/nevir/token.json'):
+        creds = Credentials.from_authorized_user_file('/home/ubuntu/nevir/token.json', SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIAL_FILE, SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('/home/ubuntu/nevir/token.json', 'w') as token:
+            token.write(creds.to_json())
+    return build('drive', 'v3', credentials=creds)
+
+if __name__ == '__main__': 
+    gen = "1_1"
+    folder_path = f"/home/ubuntu/nevir/gen_spot/results_{gen}/"
+    
+    for base_name in [
+        "base_002"
+        ]:
+        for source in  [
+            'hose500',
+        #                 "hose500_vn30","hose500_fhose500","hose500_fvn30",
+        #                 "vn30","vn30_fvn30","vn30_fhose500",
+        #                 "fhose500","fhose500_fvn30",
+        #                 "fvn30",
+        #                 "hose500_fhose500_vn30","hose500_fhose500_fvn30",
+                        # "vn30_fhose500_fvn30",
+                        # "hose500_fhose500_vn30_fvn30",
+                        ]:
+            base_params = {
+                'window_fast': {'start': 5, 'end': 30, 'step': 5},
+                'window_slow': {'start': 40, 'end': 100, 'step': 10},
+                'window_rank': {'start': 10, 'end': 100, 'step': 10},
+            }
+
+            years = [
+                # 2025
+                # , 2024, 2023, 2022,
+                # 2021, 2020, 
+                # 2019, 2018, 
+                None
+            ]
+            dic_freqs = load_dic_freqs(source)
+            DIC_BASES = Domains.get_list_of_bases()
+            
+
+            # file json để lưu kết quả upload
+            OUTPUT_JSON = f"/home/ubuntu/nevir/gen_spot/r_{gen}.json"
+            if os.path.exists(OUTPUT_JSON):
+                with open(OUTPUT_JSON, 'r') as f:
+                    upload_results = json.load(f)
+            else:
+                upload_results = {}
+            prefix = ""
+            os.makedirs(folder_path, exist_ok=True)
+            for year in years:
+                if year is None:
+                    start = '2022_01_04'
+                    end = '2025_09_08'
+                    save_file = os.path.join(folder_path, f"{base_name}_{source}_2022_2025.xlsx")
+                    year_label = "2022_2025"
+                elif year == 2025:
+                    start = f'{year}_01_01'
+                    end = f'{year}_09_08'
+                    save_file = os.path.join(folder_path, f"{base_name}_{source}_{year}.xlsx")
+                    year_label = str(year)
+                else:
+                    start = f'{year}_01_01'
+                    end = f'{year+1}_01_01'
+                    save_file = os.path.join(folder_path, f"{base_name}_{source}_{year}.xlsx")
+                    year_label = str(year)
+
+                print(f"=== Running scan for {base_name} {source} {year_label} ===")
+
+                scan_params = ScanParams(
+                    base_name=base_name,
+                    base_params=base_params,
+                    min_freq=10,
+                    max_freq=100,
+                    fee=0.175,
+                    gen=gen
+                )
+                lst_configs = scan_params.lst_reports
+
+                scanner_process = MultiThreadScanner(
+                    n_workers=40, 
+                    use_processes=True,
+                    batch_size=1000 
+                )
+
+
+                lst_passed_parallel = scanner_process.run_parallel_backtest(
+                    lst_configs, dic_freqs, DIC_BASES,
+                    df_tick=None, start=start, end=end,gen=gen
+                )
+
+                if lst_passed_parallel:
+                    df = pd.DataFrame(lst_passed_parallel)
+                    exporter = PKLToXLSXExporter(df,gen)
+                    exporter.format_dataframe()
+                    exporter.export_to_xlsx(save_file)
+                    print(f"✅ Saved results to {save_file}")
+                    try:
+                        # === Upload ngay sau khi có file ===
+                        sheet_name = os.path.splitext(os.path.basename(save_file))[0]
+                        media = MediaFileUpload(save_file, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                        file_metadata = {
+                            'name': sheet_name,
+                            'mimeType': 'application/vnd.google-apps.spreadsheet',
+                            'parents': ["1ZI65HWxDFaPcXQYyJFdu47cLQtwJ_4Iw"]
+                        }
+                        service = get_drive_service()
+                        uploaded = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+                        file_id = uploaded.get('id')
+                        sheet_url = f"https://docs.google.com/spreadsheets/d/{file_id}"
+                        print(f"   📤 Uploaded to Google Drive: {sheet_url}")
+
+                        # cập nhật JSON
+                        upload_results[f"{base_name}_{source}_{year_label}"] = sheet_url
+                        with open(OUTPUT_JSON, 'w') as f:
+                            json.dump(upload_results, f, indent=2)
+                        print(f"   🔗 Updated {OUTPUT_JSON}")
+                    except Exception as e:
+                        print(f"   ⚠️ Failed to update {OUTPUT_JSON}: {e}")
+                        continue
+                else:
+                    print(f"❌ No configs passed for {year_label}")
