@@ -102,7 +102,8 @@ def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None,
         df_tick=None,
         gen=gen,
         start=start,
-        end=end
+        end=end,
+        source=source
     )
     bt.compute_signal()
     bt.compute_position()

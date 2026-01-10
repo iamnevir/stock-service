@@ -263,7 +263,7 @@ def cpcv(id):
         gen=gen,
         booksize=book_size,
         is_sizing=is_sizing,
-        init_sizing=init_sizing
+        init_sizing=init_sizing,
     )
     bt.compute_mega()
     start_time = time()
