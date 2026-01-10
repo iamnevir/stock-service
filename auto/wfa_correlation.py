@@ -47,7 +47,7 @@ def correlation(id, start, end):
     fee = fa.get("fee")
     filter_report = fa.get("filter_report")
     DIC_ALPHAS = Domains.get_list_of_alphas()
-    dic_freqs = load_dic_freqs()
+    dic_freqs = load_dic_freqs(source)
     need_configs = filter_report.get("strategies", [])
     try:
         list_ids = [make_key_alpha(

@@ -73,10 +73,20 @@ def make_key_mega(configs, alpha_name, fee, start, end, stop_loss=0, gen=None):
     identity_str = json.dumps(identity, sort_keys=True)
     return hashlib.md5(identity_str.encode()).hexdigest()
 
-def load_dic_freqs():
-    fn = "/home/ubuntu/nevir/gen/alpha.pkl"
-    with open(fn, "rb") as file:
-        return pickle.load(file)
+def load_dic_freqs(source):
+    if source == "dollar_bar":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_dollar_bar.pickle"
+    elif source == "volume_bar":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_volume_bar.pickle"
+    elif source == "ha":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_ha.pickle"
+    elif source == "ha_confirm":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_comfirm_ha.pickle"
+    else:  
+        fn = "/home/ubuntu/nevir/gen/alpha.pkl"
+    with open(fn, 'rb') as file:
+        dic_freqs = pickle.load(file)
+    return dic_freqs
     
 import logging
 UTC_PLUS_7 = timezone(timedelta(hours=7))

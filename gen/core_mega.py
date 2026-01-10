@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
 from gen.core import Simulator as SimulatorGen
-def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, DIC_ALPHAS, return_dict):
+def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, source, DIC_ALPHAS, return_dict):
 
     # ====== PARSE CONFIG (logic giữ nguyên 100%) ======
     gen_params = {}
@@ -72,27 +72,26 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
         df_tick=None,
         gen=gen,
         start=start,
-        end=end
+        end=end,
+        source=source
     )
 
     bt.compute_signal()
     bt.compute_position()
     df = bt.df_alpha.copy()
+    
     # ====== create datetime index ======
-    # df['datetime'] = pd.to_datetime(
-    #     df['day'] + ' ' + df['executionTime'],
-    #     format='%Y_%m_%d %H:%M:%S',
-    #     errors='coerce'
-    # )
+    if 'datetime' not in df.columns:
+        df['datetime'] = df['executionT']
     df = df.set_index("datetime")
     df = df[~df.index.duplicated(keep='first')]
     df = df[['position']]
-    
     # ====== STOP LOSS ======
-    if stop_loss > 0:
+    if stop_loss > 0 or source != None:
         df_ps = df_tick.copy()
         df_pos = pd.merge(df, df_ps, on='datetime', how='outer').sort_index()
         df_pos['position'] = df_pos['position'].ffill().fillna(0)
+        
         df_pos.dropna(inplace=True)
 
         df_pos["priceChange"] = df_pos.groupby("day")["last"].diff().shift(-1).fillna(0)
@@ -108,16 +107,17 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
 
         df2 = df_pos[['position']].rename(columns={'position': index})
     else:
-        df_ps = dic_freqs[1]
+        df_ps = dic_freqs[list(dic_freqs.keys())[0]].copy()
         df_ps = df_ps.set_index("datetime")
         df_pos = pd.merge(df_ps, df, on='datetime', how='left')
         df_pos['position'] = df_pos['position'].ffill().fillna(0)
         df2 = df_pos[['position']].rename(columns={'position': index})
-
+        
+    
     return_dict[index] = df2
 
 class Simulator:
-    def __init__(self, alpha_name,configs ,fee=0.1, dic_freqs=None,DIC_ALPHAS=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5):
+    def __init__(self, alpha_name,configs ,fee=0.1, dic_freqs=None,DIC_ALPHAS=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5,source=None):
 
         self.configs = configs
         self.fee = fee
@@ -126,6 +126,7 @@ class Simulator:
         self.df_tick = df_tick.copy() if df_tick is not None else None
         self.start = start
         self.end = end
+        self.source = source
         if DIC_ALPHAS:
             self.DIC_ALPHAS = DIC_ALPHAS
             self.alpha_func = DIC_ALPHAS[alpha_name]
@@ -166,6 +167,7 @@ class Simulator:
                     self.stop_loss,
                     self.start,
                     self.end,
+                    self.source,
                     self.DIC_ALPHAS,
                     return_dict
                 )
@@ -189,7 +191,7 @@ class Simulator:
         df_all_pos = pd.concat(lst_pos, axis=1)
         df_all_pos = df_all_pos[~df_all_pos.index.duplicated(keep='first')]
         df_pos_sum = df_all_pos.sum(axis=1).rename('position').to_frame()
-        if self.stop_loss > 0:
+        if self.stop_loss > 0 or self.source != None:
             df_alpha = self.df_tick.copy()
             df_alpha["priceChange"] = (
                 df_alpha.groupby("day")["last"]
@@ -197,10 +199,10 @@ class Simulator:
                 .shift(-1)
                 .fillna(0)
             )
-            start = int("".join(start.split("_")))
-            end = int("".join(end.split("_")))
+            start = int("".join(self.start.split("_")))
+            end = int("".join(self.end.split("_")))
         else:
-            df_alpha = self.dic_freqs[1].copy()
+            df_alpha = self.dic_freqs[list(self.dic_freqs.keys())[0]].copy()
             start = self.start
             end = self.end
         if self.is_sizing:
@@ -261,8 +263,8 @@ class Simulator:
             intraday_netProfit = df_day['netProfit'].sum()
             
             total_netProfit += intraday_netProfit
-            if day == "2025_01_02":
-                print(df_day['position'].sum(),df_day['position_init'].sum(),booksize)
+            # if day == "2025_01_02":
+            #     print(df_day['position'].sum(),df_day['position_init'].sum(),booksize)
                
             df_alpha.loc[df_day.index, f"position"] = df_day['position']
             df_alpha.loc[df_day.index, f"booksize"] = booksize
@@ -327,7 +329,8 @@ class Simulator:
     
     def extract_net_profits(self):
         return Alpha_Domains.extract_net_profits(self.df_alpha)
-        
+    def compute_df_trade(self):
+        self.df_trade = Alpha_Domains.compute_df_trade(self.df_alpha,self.source)
 class Alpha_Domains:
     @staticmethod
     def calculate_working_days(start: int, end: int, workdays_per_year: int = 250) -> int:
@@ -394,6 +397,7 @@ class Alpha_Domains:
         ppc = df_1d['netProfit'].sum() / (df_1d['turnover'].sum() + 1e-8)
 
         mdd, mdd_pct, cdd, cdd_pct = Alpha_Domains.compute_mdd_vectorized(df_1d,equity)
+        # print(df_alpha.columns,df_alpha['position'].sum())
         df = df_alpha
         # print(df[['day','position','grossProfit','fee','netProfit']])
         df["position_prev"] = df["position"].shift(fill_value=0)
@@ -420,7 +424,7 @@ class Alpha_Domains:
         
         num_trades = trade_results.count()
         # print(num_trades)
-        winrate = round((trade_results > 0).sum() / num_trades * 100, 2) if num_trades > 0 else None
+        winrate = round((trade_results > 0).sum() / num_trades * 100, 2) if num_trades > 0 else 0
         returns = df_1d['netProfit'] / equity
         winning_profits = df_1d[df_1d['netProfit'] > 0]['netProfit']
         loss_profits = df_1d[df_1d['netProfit'] < 0]['netProfit']
@@ -511,7 +515,14 @@ class Alpha_Domains:
 
         return mdd, mdd_pct, cdd_last, cdd_pct
 
-
+    def compute_df_trade(df_alpha,source=None):
+        """Lưu time_int và turnover của các giao dịch"""
+        if source is not None:
+            df_trade = df_alpha[df_alpha["action"] != 0][["action","datetime"]]
+            df_trade = df_trade.rename(columns={"datetime":"executionT"})
+        else:
+            df_trade = df_alpha[df_alpha["action"] != 0][["action","executionT"]]
+        return df_trade
 
 
 

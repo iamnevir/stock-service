@@ -19,7 +19,7 @@ def get_next_wfa(alpha):
         if correlation.get("status") != "done":
             return idx, fa
 
-        if fa.get("report", {}).get("tvr") is None and fa.get("os",{}).get("end") !="2026_07_01":
+        if fa.get("report", {}).get("tvr") is None and fa.get("os",{}).get("end") !="2026_07_01" and fa.get("os",{}).get("end") !="2026_04_01":
             return idx, fa
 
     return None, None

@@ -231,6 +231,7 @@ def wfa(_id,start=None,end=None):
         name = alpha_doc.get("name", "")
         logger = setup_logger(name)
         alpha_name = alpha_doc.get("alpha_name", "")
+        source = alpha_doc.get("source", None)
         gen = alpha_doc.get("gen")
         _is = fa.get("is", {})
         start = _is.get("start")
@@ -239,7 +240,7 @@ def wfa(_id,start=None,end=None):
         freq = fa.get("freq")
         fee = fa.get("fee")
         DIC_ALPHAS = Domains.get_list_of_alphas()
-        dic_freqs = load_dic_freqs()
+        dic_freqs = load_dic_freqs(source)
 
         scan_params = ScanParams(
             lst_alpha_names=[alpha_name],
@@ -247,6 +248,7 @@ def wfa(_id,start=None,end=None):
             freq=freq,
             fee=fee,
             gen=gen,
+            source=source
         ).lst_reports
 
         total = len(scan_params)

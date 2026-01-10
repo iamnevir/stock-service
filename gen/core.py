@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
 class Simulator:
-    def __init__(self, alpha_name, freq=1, gen_params=None, fee=0.1, df_alpha=None,DIC_ALPHAS=None,params={},df_tick=None,gen=None,stop_loss=0,is_sizing=False,init_sizing=37.5,start=None,end=None,booksize=1,cut_time=None,df_1m=None): 
+    def __init__(self, alpha_name, freq=1, gen_params=None, fee=0.1, df_alpha=None,DIC_ALPHAS=None,params={},df_tick=None,gen=None,stop_loss=0,is_sizing=False,init_sizing=37.5,start=None,end=None,booksize=1,source=""): 
 
         self.freq = freq
         self.gen_params = gen_params
@@ -13,8 +13,7 @@ class Simulator:
         self.gen = gen
         self.start = start
         self.end = end
-        self.df_1m = df_1m
-        self.cutTime = cut_time
+        self.source = source
         # df_alpha = df_alpha[(df_alpha['day'] >= start) & (df_alpha['day'] <= end)].copy()
         self.booksize = booksize
         ohlc_cols = ["open","high","low","close"]
@@ -43,20 +42,32 @@ class Simulator:
     def compute_signal(self):
                 
         Alpha_Domains.compute_signal(alpha_func=self.alpha_func, df_alpha=self.df_alpha, params=self.params)
+        
         if self.gen == "1_1" and self.gen_params['halflife'] > 0:
             self.df_alpha['signal'] = self.df_alpha['signal'].ewm(halflife=self.gen_params['halflife']).mean()
         self.df_alpha = self.df_alpha[
             (self.df_alpha['day'] >= self.start) &
             (self.df_alpha['day'] <= self.end)
         ]
+            
+    def change_cut_time(self, df_1m, cut_time="14:45:00"):  
+        df_1m = df_1m[
+            (df_1m['day'] >= self.start) &
+            (df_1m['day'] <= self.end)
+        ]
+        df_1M = df_1m.reset_index().merge(self.df_alpha[['position', 'executionT']],
+                       on='executionT',
+                       how='left').set_index('groupTime')
+        df_1M['position'] = df_1M['position'].ffill().fillna(0)
         
-
+        df_1M.loc[df_1M['executionTime'] >= cut_time, 'position'] = 0.0
+        self.df_alpha = df_1M
+        
     def compute_position(self):
         if self.gen == "1_1":
             Alpha_Domains.compute_position(
                 df_alpha=self.df_alpha,
-                threshold=self.gen_params['threshold'],
-                )
+                threshold=self.gen_params['threshold'])
         elif self.gen == "1_2":
             Alpha_Domains.compute_positions_with_thresholds(
                 df_alpha=self.df_alpha,
@@ -74,7 +85,8 @@ class Simulator:
                 vel_entry=self.gen_params['entry'],
                 vel_exit=self.gen_params['exit'],
                 smooth_window=self.gen_params['smooth'] )
-        
+        if self.source == "ha_confirm":
+            Alpha_Domains.ha_confirm(self.df_alpha, N=3)
         if self.is_sizing:
             self.df_alpha["position_init"] = self.df_alpha['position'].values 
             self.sizing_positon()
@@ -87,17 +99,6 @@ class Simulator:
             return 0
         else:
             return df_filtered['action'].iloc[-1]
-        
-    def change_to_df1m(self):
-        if self.cutTime:       
-            df_1M = self.df_1m.reset_index().merge(self.df_alpha[['position', 'executionT']],
-                        on='executionT',
-                        how='left').set_index('groupTime')
-            df_1M['position'] = df_1M['position'].ffill().fillna(0)
-            # print(df_1M)
-            df_1M.loc[df_1M['executionTime'] >= self.cutTime, 'position'] = 0.0
-            self.df_alpha = df_1M    
-            # print(df_1M[df_1M['day'] == "2025_09_05"][['open','executionT',"position"]].tail(10))
         
     def sizing_positon(self):   
         df = self.df_alpha.copy()
@@ -139,18 +140,22 @@ class Simulator:
         self.report.update(report)
     def merge_position_to_ticks(self):
         self.df_alpha = Alpha_Domains.merge_position_to_ticks(self.df_alpha,self.df_tick)
+        self.df_alpha = self.df_alpha[
+            (self.df_alpha['day'] >= int(self.start.replace("_", ""))) &
+            (self.df_alpha['day'] <= int(self.end.replace("_", "")))
+        ]
     def compute_df_trade(self):
         self.df_trade = Alpha_Domains.compute_df_trade(self.df_alpha)
     def extract_net_profits(self):
         return Alpha_Domains.extract_net_profits(self.df_alpha)
     
 class Alpha_Domains:
-    
     @staticmethod
     def compute_signal(alpha_func, df_alpha, params={}):
         
         df_alpha['position'] = df_alpha['signal'] = alpha_func(df_alpha,**params)
        
+        # print(df_alpha['signal'].sum())
 
 
     def compute_position(df_alpha, threshold):
@@ -228,6 +233,28 @@ class Alpha_Domains:
         Alpha_Domains.adjust_positions(df_alpha)
         
     @staticmethod
+    def ha_confirm(df_alpha, N=3):
+        uptrend_condition = (df_alpha['ha_close'] > df_alpha['ha_open'])
+        downtrend_condition = (df_alpha['ha_close'] < df_alpha['ha_open'])
+        conditions = [uptrend_condition, downtrend_condition]
+        choices = [1, -1]  # 1 cho Up, -1 cho Down
+        df_alpha['HA_Direction'] = np.select(
+            conditions, 
+            choices, 
+            default=0
+        )
+        df_alpha['is_strong_uptrend'] = df_alpha['HA_Direction'].rolling(N).apply(lambda x: (x == 1).all(), raw=True)
+        df_alpha['is_strong_downtrend'] = df_alpha['HA_Direction'].rolling(N).apply(lambda x: (x == -1).all(), raw=True)
+           
+        conditions = [
+            (df_alpha['position'] == 1) & (df_alpha['is_strong_uptrend'] == 1),
+            (df_alpha['position'] == -1) & (df_alpha['is_strong_downtrend'] == 1)
+        ]
+        choices = [1, -1]
+        df_alpha['position'] = np.select(conditions, choices, default=0)
+        Alpha_Domains.adjust_positions(df_alpha)
+        
+    @staticmethod
     def compute_positions_with_thresholds(df_alpha, upper, lower):
         
         Alpha_Domains.adjust_positions(df_alpha)
@@ -249,8 +276,6 @@ class Alpha_Domains:
         df_alpha['action'] = df_alpha['position'].diff(1).fillna(df_alpha['position'].iloc[0])
         df_alpha['turnover'] = df_alpha['action'].abs()
         df_alpha['fee'] = df_alpha['turnover'] * fee
-        # print(df_alpha['position'].sum())
-        
         
     @staticmethod
     def merge_position_to_ticks(df_alpha, df_tick):
@@ -444,107 +469,118 @@ class Alpha_Domains:
 
     @staticmethod
     def compute_performance(df_alpha, start=None, end=None,equity=300):
-        
-        working_days = Alpha_Domains.calculate_working_days(start,end)
-        agg_dict = {
-            "open": "sum",
-            "turnover": "sum",
-            "netProfit": "sum",
-        }
+        try:
+            lst_errs = []
+            
+            working_days = Alpha_Domains.calculate_working_days(start,end)
+            agg_dict = {
+                "open": "sum",
+                "turnover": "sum",
+                "netProfit": "sum",
+            }
 
-        if "booksize" in df_alpha.columns:
-            agg_dict["booksize"] = "last"
-        df_1d = df_alpha \
-            .groupby('day') \
-            .agg(agg_dict)
-        # print("10 day best loss", df_1d['netProfit'].nsmallest(10))
-        # print("10 day best win", df_1d['netProfit'].nlargest(10))
-        
-        # df_1d['pctChange'] = df_1d['netProfit'] / df_1d['open']
-        mean = df_1d["netProfit"].mean()
-        std = df_1d["netProfit"].std()
+            if "booksize" in df_alpha.columns:
+                agg_dict["booksize"] = "last"
+            df_1d = df_alpha \
+                .groupby('day') \
+                .agg(agg_dict)
+            # print(df_1d)
+            # print("10 day best loss", df_1d['netProfit'].nsmallest(10))
+            # print("10 day best win", df_1d['netProfit'].nlargest(10))
+            
+            df_1d['pctChange'] = df_1d['netProfit'] / df_1d['open']
+            try:
+                # sharpe = df_1d['pctChange'].mean() / df_1d['pctChange'].std() * 250 ** 0.5
+                mean = df_1d["netProfit"].mean()
+                std = df_1d["netProfit"].std()
 
-        if std and not np.isnan(std):
-            sharpe = mean / std * working_days  ** 0.5
-            # daily_sharpe = mean / std
-        else:
-            sharpe = np.nan
-            # daily_sharpe =  np.nan
-        
-        # roe = df_1d['pctChange'].sum()
-        tvr = df_1d['turnover'].mean()
-        # aroe = roe * 250 / len(df_1d)
-        ppc = df_1d['netProfit'].sum() / (df_1d['turnover'].sum() + 1e-8)
-        
-        mdd, mdd_pct, cdd, cdd_pct = Alpha_Domains.compute_mdd_vectorized(df_1d,equity)
-        # df = df_alpha
-        # df["position_prev"] = df["position"].shift(fill_value=0)
-        # df["position_next"] = df["position"].shift(-1, fill_value=0)
+                if std and not np.isnan(std):
+                    sharpe = mean / std * working_days  ** 0.5
+                    daily_sharpe = mean / std
+                else:
+                    sharpe = np.nan
+                    daily_sharpe =  np.nan
+            except Exception as e:
+                lst_errs.append(f"{e}")
+                # U.report_error(e)
+                sharpe = -999
+            
+            roe = df_1d['pctChange'].sum()
+            tvr = df_1d['turnover'].mean()
+            aroe = roe * 250 / len(df_1d)
+            ppc = df_1d['netProfit'].sum() / (df_1d['turnover'].sum() + 1e-8)
+            
+            mdd, mdd_pct, cdd, cdd_pct = Alpha_Domains.compute_mdd_vectorized(df_1d,equity)
+            df = df_alpha
+            df["position_prev"] = df["position"].shift(fill_value=0)
+            df["position_next"] = df["position"].shift(-1, fill_value=0)
 
-        # # trade_start: khi từ 0 sang có vị thế hoặc đổi chiều
-        # df["trade_start"] = (((df["position_prev"] == 0) & (df["position"] != 0)) |
-        #                     (df["position_prev"] * df["position"] < 0)).astype(int)
+            # trade_start: khi từ 0 sang có vị thế hoặc đổi chiều
+            df["trade_start"] = (((df["position_prev"] == 0) & (df["position"] != 0)) |
+                                (df["position_prev"] * df["position"] < 0)).astype(int)
 
-        # # trade_end: khi position hiện tại khác position kế tiếp (về 0 hoặc đảo chiều)
-        # df["trade_end"] = ((df["position"] != 0) & (df["position_next"] != df["position"])).astype(int)
+            # trade_end: khi position hiện tại khác position kế tiếp (về 0 hoặc đảo chiều)
+            df["trade_end"] = ((df["position"] != 0) & (df["position_next"] != df["position"])).astype(int)
 
 
-        # # Gán trade_id và loại bỏ các đoạn không có vị thế
-        # df["trade_id"] = df["trade_start"].cumsum()
-        # df.loc[df["position"] == 0, "trade_id"] = None
-        # df["trade_id"] = df["trade_id"].ffill()
-        
-        # trade_results = df.groupby("trade_id")["netProfit"].sum()
-        # num_trades = trade_results.count()
-        # winrate = round((trade_results > 0).sum() / num_trades * 100, 2) if num_trades > 0 else None
-        # returns = df_1d['netProfit'] / equity
-        # winning_profits = df_1d[df_1d['netProfit'] > 0]['netProfit']
-        # loss_profits = df_1d[df_1d['netProfit'] < 0]['netProfit']
-        # net_profit_pos = winning_profits.sum()
-        # net_profit_neg = loss_profits.sum()
-        # npf = net_profit_pos / abs(net_profit_neg) if net_profit_neg != 0 else net_profit_pos
-        # total_profit = winning_profits.sum()
-        # shares = winning_profits / total_profit
-        # hhi = (shares ** 2).sum()
-        # try:
-        #     E = (1 + (trade_results[trade_results > 0].mean()/abs(trade_results[trade_results < 0].mean()))) * (winrate/100) - 1
-        # except Exception as e:
-        #     E = 0
-        new_report = {
-            'sharpe': round(sharpe, 3),
-            # "hhi": round(hhi,3),
-            # "psr": round(Alpha_Domains.dsr(returns, daily_sharpe,0),3),
-            # "dsr": round(Alpha_Domains.dsr(returns, daily_sharpe),3),
-            # 'aroe': round(aroe, 4),
-            'mdd': round(mdd, 3),
-            'mddPct': round(mdd_pct.iloc[-1], 4),
-            # 'cdd': round(cdd, 3),
-            # 'cddPct': round(cdd_pct.iloc[-1], 4),
-            'ppc': round(ppc, 4),
-            # "E":round(E,2),
-            'tvr': round(tvr, 4),
-            # "npf":float(round(npf, 2)),
-            # 'start': df_1d.index[0],
-            # 'end': df_1d.index[-1],
-            # 'lastProfit': round(df_1d['netProfit'].iloc[-1], 2),
-            "netProfit": round(df_1d['netProfit'].sum(), 2),
-            "profitPct": round(df_1d['netProfit'].sum(), 2) / equity * 100,
-            # "max_loss": round(df_1d['netProfit'].min(), 2),
-            # "max_gross": round(df_1d['netProfit'].max(), 2),
-            # "winrate":winrate,
-            # "num_trades": num_trades,
-        }
-        
-        df_1d['cumNetProfit'] = df_1d['netProfit'].cumsum()
-        df_1d = df_1d.reset_index()
-        df_1d.index = df_1d['day'].values
-        df_1d['netProfit'] = df_1d['netProfit'].round(2)
-        df_1d['ccd1'] = cdd_pct
-        df_1d['mdd1'] = mdd_pct
-        
-        # print(df_alpha[df_alpha['day'] == "2025_09_04"][['open','executionT',"position","entryPrice","exitPrice","grossProfit","netProfit"]])
-        # Alpha_Domains.extract_trades_df(df_alpha)
-        return df_1d, new_report
+            # Gán trade_id và loại bỏ các đoạn không có vị thế
+            df["trade_id"] = df["trade_start"].cumsum()
+            df.loc[df["position"] == 0, "trade_id"] = None
+            df["trade_id"] = df["trade_id"].ffill()
+            
+            trade_results = df.groupby("trade_id")["netProfit"].sum()
+            num_trades = trade_results.count()
+            winrate = round((trade_results > 0).sum() / num_trades * 100, 2) if num_trades > 0 else None
+            returns = df_1d['netProfit'] / equity
+            winning_profits = df_1d[df_1d['netProfit'] > 0]['netProfit']
+            loss_profits = df_1d[df_1d['netProfit'] < 0]['netProfit']
+            net_profit_pos = winning_profits.sum()
+            net_profit_neg = loss_profits.sum()
+            npf = net_profit_pos / abs(net_profit_neg) if net_profit_neg != 0 else net_profit_pos
+            total_profit = winning_profits.sum()
+            shares = winning_profits / total_profit
+            hhi = (shares ** 2).sum()
+            try:
+                E = (1 + (trade_results[trade_results > 0].mean()/abs(trade_results[trade_results < 0].mean()))) * (winrate/100) - 1
+            except Exception as e:
+                E = 0
+            new_report = {
+                'sharpe': round(sharpe, 3),
+                "hhi": round(hhi,3),
+                "psr": round(Alpha_Domains.dsr(returns, daily_sharpe,0),3),
+                "dsr": round(Alpha_Domains.dsr(returns, daily_sharpe),3),
+                'aroe': round(aroe, 4),
+                'mdd': round(mdd, 3),
+                'mddPct': round(mdd_pct.iloc[-1], 4),
+                'cdd': round(cdd, 3),
+                'cddPct': round(cdd_pct.iloc[-1], 4),
+                'ppc': round(ppc, 4),
+                "E":round(E,2),
+                'tvr': round(tvr, 4),
+                "npf":float(round(npf, 2)),
+                'start': df_1d.index[0],
+                'end': df_1d.index[-1],
+                'lastProfit': round(df_1d['netProfit'].iloc[-1], 2),
+                "netProfit": round(df_1d['netProfit'].sum(), 2),
+                "profitPct": round(df_1d['netProfit'].sum(), 2) / equity * 100,
+                "max_loss": round(df_1d['netProfit'].min(), 2),
+                "max_gross": round(df_1d['netProfit'].max(), 2),
+                "winrate":winrate,
+                "num_trades": num_trades,
+            }
+            
+            df_1d['cumNetProfit'] = df_1d['netProfit'].cumsum()
+            df_1d = df_1d.reset_index()
+            df_1d.index = df_1d['day'].values
+            df_1d['netProfit'] = df_1d['netProfit'].round(2)
+            df_1d['ccd1'] = cdd_pct
+            df_1d['mdd1'] = mdd_pct
+            
+            # print(df_alpha[df_alpha['day'] == "2025_12_08"][['open',"high","low","close",'executionT',"position","entryPrice","exitPrice","grossProfit","netProfit","signal"]])
+            # Alpha_Domains.extract_trades_df(df_alpha)
+            return df_1d, new_report
+        except Exception as e:
+            pass
     @staticmethod
     def dsr(returns,sharpe, sr_benchmark=0.18):
         try:
