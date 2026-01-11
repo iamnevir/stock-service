@@ -87,7 +87,7 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
     df = df[~df.index.duplicated(keep='first')]
     df = df[['position']]
     # ====== STOP LOSS ======
-    if stop_loss > 0 or source != None:
+    if stop_loss > 0 or source == "volume_bar" or source == "dollar_bar":
         df_ps = df_tick.copy()
         df_pos = pd.merge(df, df_ps, on='datetime', how='outer').sort_index()
         df_pos['position'] = df_pos['position'].ffill().fillna(0)
@@ -191,7 +191,7 @@ class Simulator:
         df_all_pos = pd.concat(lst_pos, axis=1)
         df_all_pos = df_all_pos[~df_all_pos.index.duplicated(keep='first')]
         df_pos_sum = df_all_pos.sum(axis=1).rename('position').to_frame()
-        if self.stop_loss > 0 or self.source != None:
+        if self.stop_loss > 0 or self.source == "volume_bar" or self.source == "dollar_bar":
             df_alpha = self.df_tick.copy()
             df_alpha["priceChange"] = (
                 df_alpha.groupby("day")["last"]
@@ -317,7 +317,7 @@ class Simulator:
         return df
     
     def compute_performance(self):
- 
+        print(self.booksize)
         self.df_1d, report = Alpha_Domains.compute_performance(
             self.df_alpha,
             start=self.start,
