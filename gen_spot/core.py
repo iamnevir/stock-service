@@ -36,8 +36,8 @@ class Simulator:
         self.hard_dic_budget['action'] = self.hard_dic_budget['status'] + 1
         
     def compute_signal(self):
-                
         Base_Domains.compute_signal(base_func=self.base_func, df_base=self.df_base, params=self.params)
+
         self.df_base = self.df_base[
             (self.df_base['day'] >= self.start) &
             (self.df_base['day'] <= self.end)
@@ -132,8 +132,8 @@ class Base_Domains:
         df_base['position'] = df_base['signal'] = base_func(df_base,**params)
 
 
+
     def compute_position(df_base, threshold):
-        
         flt_mediocre = df_base['signal'].abs() < threshold
         df_base.loc[flt_mediocre, 'signal'] = np.nan
         
@@ -141,7 +141,6 @@ class Base_Domains:
         Base_Domains.adjust_positions(df_base)
         
         df_base['position'] = np.sign(df_base['position'])
-        
     @staticmethod
     def adjust_positions(df_base):
         flt_unexecutable = ~df_base['executable']

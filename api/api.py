@@ -16,6 +16,8 @@ from bson import ObjectId
 from flask import Flask
 from flask_cors import CORS
 from auto.utils import get_mongo_uri
+from routes.base import base_bp
+
 stock_bp = Blueprint('stock_bp', __name__)
 
 @stock_bp.route('/get_alpha_log', methods=['POST'])
@@ -447,6 +449,7 @@ def create_app():
     app = Flask(__name__)
     CORS(app)
     app.register_blueprint(stock_bp, url_prefix="/")
+    app.register_blueprint(base_bp, url_prefix="/")
 
     @app.route("/", methods=["GET"])
     def on():

@@ -206,12 +206,15 @@ class Simulator:
             start = self.start
             end = self.end
         if self.is_sizing:
-            df_alpha["position_init"] = df_pos_sum['position'] / self.n_alphas 
+            df_alpha["position_init"] = df_alpha["executionT"].map(df_pos_sum["position"]) / self.n_alphas 
+            # df_alpha["position_init"] = df_pos_sum['position'] / self.n_alphas 
           
             self.adjust_positions(df_alpha)
             df_alpha = self.sizing_positon(df_alpha)
         else:
-            df_alpha['position'] = ((df_pos_sum['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
+            # df_alpha['position'] = ((df_pos_sum['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
+            df_alpha["position"] = df_alpha["executionT"].map(df_pos_sum["position"])
+            df_alpha["position"] = ((df_alpha['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
         df_alpha['grossProfit'] = df_alpha['position'] * df_alpha['priceChange']
         df_alpha['action'] = df_alpha['position'] - df_alpha['position'].shift(1, fill_value=0)
         df_alpha['turnover'] = df_alpha['action'].abs()

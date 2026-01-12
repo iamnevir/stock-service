@@ -4,8 +4,8 @@ from math import erf, sqrt
 import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
-from gen.core import Simulator as SimulatorGen
-def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, DIC_ALPHAS, return_dict):
+from gen_spot.core import Simulator as SimulatorGen
+def worker_compute_process(index, config, gen, base_name, fee, dic_freqs, df_tick, stop_loss, start, end, DIC_BASES, return_dict):
 
     # ====== PARSE CONFIG (logic giữ nguyên 100%) ======
     gen_params = {}
@@ -39,13 +39,13 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
     
     # ====== RUN SIMULATORGEN ======
     bt = SimulatorGen(
-        alpha_name=alpha_name,
+        base_name=base_name,
         freq=freq,
         gen_params=gen_params,
         fee=fee,
-        df_alpha=dic_freqs[freq].copy(),
+        df_base=dic_freqs[freq].copy(),
         params=params,
-        DIC_ALPHAS=DIC_ALPHAS,
+        DIC_BASES=DIC_BASES,
         df_tick=None,
         gen=gen,
         start=start,
@@ -54,8 +54,9 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
 
     bt.compute_signal()
     bt.compute_position()
-    df = bt.df_alpha.copy()
-
+    df = bt.df_base.copy()
+    if 'datetime' not in df.columns:
+        df['datetime'] = df['executionT']
     df = df.set_index("datetime")
     df = df[~df.index.duplicated(keep='first')]
     df = df[['position']]
@@ -81,6 +82,8 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
         df2 = df_pos[['position']].rename(columns={'position': index})
     else:
         df_ps = dic_freqs[1]
+        if 'datetime' not in df_ps.columns:
+            df_ps['datetime'] = df_ps['executionT']
         df_ps = df_ps.set_index("datetime")
         df_pos = pd.merge(df_ps, df, on='datetime', how='left')
         df_pos['position'] = df_pos['position'].ffill().fillna(0)
@@ -89,7 +92,7 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
     return_dict[index] = df2
 
 class Simulator:
-    def __init__(self, alpha_name,configs ,fee=0.1, dic_freqs=None,DIC_ALPHAS=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5):
+    def __init__(self, base_name,configs ,fee=0.1, dic_freqs=None,DIC_BASES=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5):
 
         self.configs = configs
         self.fee = fee
@@ -98,13 +101,13 @@ class Simulator:
         self.df_tick = df_tick.copy() if df_tick is not None else None
         self.start = start
         self.end = end
-        if DIC_ALPHAS:
-            self.DIC_ALPHAS = DIC_ALPHAS
-            self.alpha_func = DIC_ALPHAS[alpha_name]
-        self.alpha_name = alpha_name
+        if DIC_BASES:
+            self.DIC_BASES = DIC_BASES
+            self.base_func = DIC_BASES[base_name]
+        self.base_name = base_name
         self.gen = gen
         self.booksize = booksize if booksize is not None else len(configs)
-        self.n_alphas = len(self.configs)
+        self.n_bases = len(self.configs)
         self.is_sizing = is_sizing
         self.hard_dic_budget = pd.DataFrame({'status':  range(101)})
         self.hard_dic_budget['cum'] = init_sizing
@@ -113,12 +116,12 @@ class Simulator:
         self.hard_dic_budget['cum'] = self.hard_dic_budget['cum'].cumsum()
         self.hard_dic_budget['action'] = self.hard_dic_budget['status'] + 1
 
-    def adjust_positions(self,df_alpha):
-        flt_unexecutable = ~df_alpha['executable']
-        df_alpha.loc[flt_unexecutable, 'position_init'] = np.nan
-        flt_atc = df_alpha['executionTime'] == '14:45:00'
-        df_alpha.loc[flt_atc, 'position_init'] = 0
-        df_alpha['position_init'] = df_alpha['position_init'].ffill().fillna(0)
+    def adjust_positions(self,df_base):
+        flt_unexecutable = ~df_base['executable']
+        df_base.loc[flt_unexecutable, 'position_init'] = np.nan
+        flt_atc = df_base['executionTime'] == '14:45:00'
+        df_base.loc[flt_atc, 'position_init'] = 0
+        df_base['position_init'] = df_base['position_init'].ffill().fillna(0)
     
     def compute_mega(self):
         manager = multiprocessing.Manager()
@@ -131,14 +134,14 @@ class Simulator:
                     idx,
                     config,
                     self.gen,
-                    self.alpha_name,
+                    self.base_name,
                     self.fee,
                     self.dic_freqs,
                     self.df_tick,
                     self.stop_loss,
                     self.start,
                     self.end,
-                    self.DIC_ALPHAS,
+                    self.DIC_BASES,
                     return_dict
                 )
             )
@@ -162,9 +165,9 @@ class Simulator:
         df_all_pos = df_all_pos[~df_all_pos.index.duplicated(keep='first')]
         df_pos_sum = df_all_pos.sum(axis=1).rename('position').to_frame()
         if self.stop_loss > 0:
-            df_alpha = self.df_tick.copy()
-            df_alpha["priceChange"] = (
-                df_alpha.groupby("day")["last"]
+            df_base = self.df_tick.copy()
+            df_base["priceChange"] = (
+                df_base.groupby("day")["last"]
                 .diff()
                 .shift(-1)
                 .fillna(0)
@@ -172,31 +175,32 @@ class Simulator:
             start = int("".join(start.split("_")))
             end = int("".join(end.split("_")))
         else:
-            df_alpha = self.dic_freqs[1].copy()
+            df_base = self.dic_freqs[1].copy()
             start = self.start
             end = self.end
         if self.is_sizing:
-            df_alpha["position_init"] = df_pos_sum['position'] / self.n_alphas 
+            df_base["position_init"] = df_base["executionT"].map(df_pos_sum["position"]) / self.n_bases 
           
-            self.adjust_positions(df_alpha)
-            df_alpha = self.sizing_positon(df_alpha)
+            self.adjust_positions(df_base)
+            df_base = self.sizing_positon(df_base)
         else:
-            df_alpha['position'] = ((df_pos_sum['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
-        df_alpha['grossProfit'] = df_alpha['position'] * df_alpha['priceChange']
-        df_alpha['action'] = df_alpha['position'] - df_alpha['position'].shift(1, fill_value=0)
-        df_alpha['turnover'] = df_alpha['action'].abs()
-        df_alpha['fee'] = df_alpha['turnover'] * self.fee 
-        df_alpha['netProfit'] = df_alpha['grossProfit'] - df_alpha['fee']
-        df_alpha['cumNetProfit'] = df_alpha['netProfit'].cumsum()
-        df_alpha = df_alpha[(df_alpha['day'] >= start) & (df_alpha['day'] <= end)]
+            df_base["position"] = df_base["executionT"].map(df_pos_sum["position"])
+            df_base["position"] = ((df_base['position'] / self.n_bases  * self.booksize).round(6).astype(int))
+        df_base['grossProfit'] = df_base['position'] * df_base['priceChange']
+        df_base['action'] = df_base['position'] - df_base['position'].shift(1, fill_value=0)
+        df_base['turnover'] = df_base['action'].abs()
+        df_base['fee'] = df_base['turnover'] * self.fee 
+        df_base['netProfit'] = df_base['grossProfit'] - df_base['fee']
+        df_base['cumNetProfit'] = df_base['netProfit'].cumsum()
+        df_base = df_base[(df_base['day'] >= start) & (df_base['day'] <= end)]
         agg_dict = {
             "grossProfit": "sum",
             "turnover": "sum",
             "netProfit": "sum",
         }
-        if "booksize" in df_alpha.columns:
+        if "booksize" in df_base.columns:
             agg_dict["booksize"] = "last"
-        df_1d = (df_alpha.groupby('day')
+        df_1d = (df_base.groupby('day')
                  .agg(agg_dict))
         df_1d['cumNetProfit'] = df_1d['netProfit'].cumsum()
         df_1d['cumTurnover'] = df_1d['turnover'].cumsum()
@@ -204,7 +208,7 @@ class Simulator:
             df_1d[['grossProfit', 'turnover', 'netProfit']].cumsum()
         df_1d[['grossProfit', 'netProfit', 'cumNetProfit', 'cumGrossProfit']] = \
             df_1d[['grossProfit', 'netProfit', 'cumNetProfit', 'cumGrossProfit']].round(2)
-        self.df_alpha = df_alpha
+        self.df_base = df_base
         self.df_1d = df_1d
     
     def get_budget(self,total_netProfit):
@@ -214,8 +218,8 @@ class Simulator:
         else:
             return df_filtered['action'].iloc[-1]
         
-    def sizing_positon(self,df_alpha):   
-        df = df_alpha.copy()
+    def sizing_positon(self,df_base):   
+        df = df_base.copy()
         lst_day = df['day'].unique()
         total_netProfit = 0
         for day in lst_day:
@@ -236,9 +240,9 @@ class Simulator:
             if day == "2025_01_02":
                 print(df_day['position'].sum(),df_day['position_init'].sum(),booksize)
                
-            df_alpha.loc[df_day.index, f"position"] = df_day['position']
-            df_alpha.loc[df_day.index, f"booksize"] = booksize
-        return df_alpha
+            df_base.loc[df_day.index, f"position"] = df_day['position']
+            df_base.loc[df_day.index, f"booksize"] = booksize
+        return df_base
     
     def hard_cut_loss(self,df):
         if self.stop_loss is None or self.stop_loss <= 0:
@@ -288,8 +292,8 @@ class Simulator:
     
     def compute_performance(self):
  
-        self.df_1d, report = Alpha_Domains.compute_performance(
-            self.df_alpha,
+        self.df_1d, report = Base_Domains.compute_performance(
+            self.df_base,
             start=self.start,
             end=self.end,
             equity=300*self.booksize,
@@ -298,10 +302,10 @@ class Simulator:
         self.report = report
     
     def extract_net_profits(self):
-        return Alpha_Domains.extract_net_profits(self.df_alpha)
+        return Base_Domains.extract_net_profits(self.df_base)
     def compute_df_trade(self):
-        self.df_trade = Alpha_Domains.compute_df_trade(self.df_alpha)
-class Alpha_Domains:
+        self.df_trade = Base_Domains.compute_df_trade(self.df_base)
+class Base_Domains:
     @staticmethod
     def calculate_working_days(start: int, end: int, workdays_per_year: int = 250) -> int:
         """
@@ -346,10 +350,10 @@ class Alpha_Domains:
         except Exception as e:
             return 0
     @staticmethod
-    def compute_performance(df_alpha, start=None, end=None,equity =300,df_1d=None):
+    def compute_performance(df_base, start=None, end=None,equity =300,df_1d=None):
         lst_errs = []
        
-        working_day = Alpha_Domains.calculate_working_days(start, end)
+        working_day = Base_Domains.calculate_working_days(start, end)
         try:
             mean = df_1d["netProfit"].mean()
             std = df_1d["netProfit"].std()
@@ -366,8 +370,8 @@ class Alpha_Domains:
         tvr = df_1d['turnover'].mean()
         ppc = df_1d['netProfit'].sum() / (df_1d['turnover'].sum() + 1e-8)
 
-        mdd, mdd_pct, cdd, cdd_pct = Alpha_Domains.compute_mdd_vectorized(df_1d,equity)
-        df = df_alpha
+        mdd, mdd_pct, cdd, cdd_pct = Base_Domains.compute_mdd_vectorized(df_1d,equity)
+        df = df_base
         # print(df[['day','position','grossProfit','fee','netProfit']])
         df["position_prev"] = df["position"].shift(fill_value=0)
         df["position_next"] = df["position"].shift(-1, fill_value=0)
@@ -409,7 +413,7 @@ class Alpha_Domains:
             'mdd': round(mdd, 3),
             'mddPct': round(mdd_pct.iloc[-1], 4),
             "hhi": round(hhi,3),
-            "psr": round(Alpha_Domains.dsr(returns, daily_sharpe,0),3),
+            "psr": round(Base_Domains.dsr(returns, daily_sharpe,0),3),
             # 'cdd': round(cdd, 3),
             # 'cddPct': round(cdd_pct.iloc[-1], 4),
             'ppc': round(ppc, 4),
@@ -432,7 +436,7 @@ class Alpha_Domains:
         df_1d['netProfit'] = df_1d['netProfit'].round(2)
         df_1d['ccd1'] = cdd_pct
         df_1d['mdd1'] = mdd_pct
-        # print(df_alpha[df_alpha['day'] == '2025_09_05'][['executionT','position','priceChange','grossProfit','fee','netProfit',"signal"]])
+        # print(df_base[df_base['day'] == '2025_09_05'][['executionT','position','priceChange','grossProfit','fee','netProfit',"signal"]])
         return df_1d, new_report
 
     @staticmethod
@@ -484,9 +488,9 @@ class Alpha_Domains:
 
         return mdd, mdd_pct, cdd_last, cdd_pct
 
-    def compute_df_trade(df_alpha):
+    def compute_df_trade(df_base):
         """Lưu time_int và turnover của các giao dịch"""
-        df_trade = df_alpha[df_alpha["action"] != 0][["action","executionT"]]
+        df_trade = df_base[df_base["action"] != 0][["action","executionT"]]
         return df_trade
 
 
