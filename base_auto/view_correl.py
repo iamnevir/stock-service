@@ -22,6 +22,7 @@ def view_wfa_correlation(id, start, end):
         return
 
     base_name = base_doc.get("base_name", "")
+    source = base_doc.get("source")
     wfa = base_doc.get("wfa", [])
     fa = None
     for item in wfa:
@@ -46,7 +47,8 @@ def view_wfa_correlation(id, start, end):
                 start=start,
                 end=end,
                 base_name=base_name,
-                gen=gen
+                gen=gen,
+                source=source
             ) for config in need_configs]
     total_config = len(list_ids)
     print(f"Total strategies to consider: {total_config}")

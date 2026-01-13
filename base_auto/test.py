@@ -5,9 +5,6 @@ from auto.utils import get_mongo_uri
 from base_auto.utils import make_key_base
 mongo_client = MongoClient(get_mongo_uri())
 db = mongo_client["base"]
-base_coll = db["base_collection"]
-base_results = db["wfa_results"]
+correlation_results = db["correlation_results"]
+correlation_backtest = db["correlation_backtest"]
 
-
-doc = base_results.delete_many({})
-print(doc)

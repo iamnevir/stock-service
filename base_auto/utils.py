@@ -47,7 +47,7 @@ def sanitize_for_bson(obj):
             return [sanitize_for_bson(x) for x in obj]
         return obj
 
-def make_key_base(config, base_name, fee, start, end, stop_loss=0, gen=None):
+def make_key_base(config, base_name, fee, start, end, source, gen, stop_loss=0):
     identity = {
         "config": config,
         "base_name": base_name,
@@ -56,6 +56,7 @@ def make_key_base(config, base_name, fee, start, end, stop_loss=0, gen=None):
         "end": end,
         "stop_loss": stop_loss,
         "gen": gen,
+        "source":source
     }
     identity_str = json.dumps(identity, sort_keys=True)
     return hashlib.md5(identity_str.encode()).hexdigest()

@@ -14,7 +14,7 @@ from itertools import combinations, islice
 
 from gen_spot.core import Simulator
 
-def run_single_backtest(config, base_name,fee, dic_freqs, DIC_BASES, gen=None, start=None, end=None):
+def run_single_backtest(config, base_name,fee, dic_freqs, DIC_BASES, gen=None, start=None, end=None, source=None):
     gen_params = {}
     if gen == "1_1":
         freq, threshold, *rest = config.split("_")
@@ -120,7 +120,9 @@ def run_single_backtest(config, base_name,fee, dic_freqs, DIC_BASES, gen=None, s
                 start=start,
                 end=end,
                 base_name=base_name,
-                gen=gen)
+                gen=gen,
+                source=source
+                )
 
     keys_to_delete = ["aroe", "cdd", "cddPct","lastProfit","max_loss","max_gross","num_trades"]
     for key in keys_to_delete:
@@ -131,10 +133,10 @@ def worker_task_batch(args):
     """
     Mỗi worker xử lý 1 batch (1000 configs)
     """
-    batch_configs, base_name, fee, dic_freqs, DIC_BASES, gen, start, end = args
+    batch_configs, base_name, fee, dic_freqs, DIC_BASES, gen, start, end, source = args
     results = []
     for cfg in batch_configs:
-        rpt = run_single_backtest(cfg, base_name, fee, dic_freqs, DIC_BASES, gen, start, end)
+        rpt = run_single_backtest(cfg, base_name, fee, dic_freqs, DIC_BASES, gen, start, end, source)
         results.append(rpt)
     return results
 
@@ -412,7 +414,8 @@ def correlation(id, start, end):
                 start=start,
                 end=end,
                 base_name=base_name,
-                gen=gen
+                gen=gen,
+                source=source
             ) for config in need_configs]
         exist_stra = list(coll.find({"_id": {"$in": list_ids}}))
         logger.info(f"🔎 Found {len(exist_stra)} existing backtest results in DB.")
@@ -437,7 +440,7 @@ def correlation(id, start, end):
             batch_size_configs = total if total < 1000 else 1000
             batches = [run_configs[i:i + batch_size_configs] for i in range(0, total, batch_size_configs)]
             
-            args_list = [(batch, base_name, fee, dic_freqs, DIC_BASES, gen, start, end) for batch in batches]
+            args_list = [(batch, base_name, fee, dic_freqs, DIC_BASES, gen, start, end, source) for batch in batches]
             
             logger.info(f"Chạy với {n_workers} processes, tổng {len(batches)} batches mỗi batch {batch_size_configs} configs.")
             temp_batch = []
