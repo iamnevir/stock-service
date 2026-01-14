@@ -11,3 +11,4 @@ __pycache__/
 *.jsontoken.json
 .env
 *.json
+*.xlsx
