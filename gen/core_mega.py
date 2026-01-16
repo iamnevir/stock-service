@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
 from gen.core import Simulator as SimulatorGen
-def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, source, DIC_ALPHAS, return_dict):
+def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, source, overnight, DIC_ALPHAS, return_dict):
 
     # ====== PARSE CONFIG (logic giữ nguyên 100%) ======
     gen_params = {}
@@ -73,7 +73,8 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
         gen=gen,
         start=start,
         end=end,
-        source=source
+        source=source,
+        overnight=overnight
     )
 
     bt.compute_signal()
@@ -117,9 +118,9 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
     return_dict[index] = df2
 
 class Simulator:
-    def __init__(self, alpha_name,configs ,fee=0.1, dic_freqs=None,DIC_ALPHAS=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5,source=None):
+    def __init__(self, alpha_name,configs ,fee=0.1, dic_freqs=None,DIC_ALPHAS=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5,source=None,overnight=False):
 
-        self.configs = configs
+        self.configs = list(configs) if configs is not None else []
         self.fee = fee
         self.stop_loss = stop_loss
         self.dic_freqs = dic_freqs
@@ -127,6 +128,7 @@ class Simulator:
         self.start = start
         self.end = end
         self.source = source
+        self.overnight = overnight
         if DIC_ALPHAS:
             self.DIC_ALPHAS = DIC_ALPHAS
             self.alpha_func = DIC_ALPHAS[alpha_name]
@@ -168,13 +170,14 @@ class Simulator:
                     self.start,
                     self.end,
                     self.source,
+                    self.overnight,
                     self.DIC_ALPHAS,
                     return_dict
                 )
             )
             p.start()
             processes.append(p)
-            while len(processes) >= 20:
+            while len(processes) >= 5:
                 # Chờ 1 process hoàn thành rồi xóa khỏi danh sách
                 for proc in processes:
                     if not proc.is_alive():
@@ -191,6 +194,7 @@ class Simulator:
         df_all_pos = pd.concat(lst_pos, axis=1)
         df_all_pos = df_all_pos[~df_all_pos.index.duplicated(keep='first')]
         df_pos_sum = df_all_pos.sum(axis=1).rename('position').to_frame()
+        # print(df_pos_sum[df_pos_sum.index > "2025-12-31 09:00:00"])
         if self.stop_loss > 0 or self.source == "volume_bar" or self.source == "dollar_bar":
             df_alpha = self.df_tick.copy()
             df_alpha["priceChange"] = (
@@ -215,18 +219,22 @@ class Simulator:
             # df_alpha['position'] = ((df_pos_sum['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
             df_alpha["position"] = df_alpha["executionT"].map(df_pos_sum["position"])
             df_alpha["position"] = ((df_alpha['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
+
+        df_alpha = df_alpha[(df_alpha['day'] >= start) & (df_alpha['day'] <= end)]
         df_alpha['grossProfit'] = df_alpha['position'] * df_alpha['priceChange']
         df_alpha['action'] = df_alpha['position'] - df_alpha['position'].shift(1, fill_value=0)
         df_alpha['turnover'] = df_alpha['action'].abs()
         df_alpha['fee'] = df_alpha['turnover'] * self.fee 
         df_alpha['netProfit'] = df_alpha['grossProfit'] - df_alpha['fee']
         df_alpha['cumNetProfit'] = df_alpha['netProfit'].cumsum()
-        df_alpha = df_alpha[(df_alpha['day'] >= start) & (df_alpha['day'] <= end)]
+        
         agg_dict = {
             "grossProfit": "sum",
             "turnover": "sum",
             "netProfit": "sum",
         }
+        if self.overnight:
+            df_alpha.loc[(df_alpha['executionTime'] == '14:45:00') & (df_alpha['executable'] == True), 'day'] = df_alpha['day'].shift(-1)
         if "booksize" in df_alpha.columns:
             agg_dict["booksize"] = "last"
         df_1d = (df_alpha.groupby('day')
@@ -321,11 +329,13 @@ class Simulator:
     
     def compute_performance(self):
         print(self.booksize)
+        # exit()
+        equity = 300 * self.booksize
         self.df_1d, report = Alpha_Domains.compute_performance(
             self.df_alpha,
             start=self.start,
             end=self.end,
-            equity=300*self.booksize,
+            equity=equity,
             df_1d=self.df_1d
         )
         self.report = report
@@ -379,9 +389,9 @@ class Alpha_Domains:
         except Exception as e:
             return 0
     @staticmethod
-    def compute_performance(df_alpha, start=None, end=None,equity =300,df_1d=None):
+    def compute_performance(df_alpha, start=None, end=None,equity=300,df_1d=None):
         lst_errs = []
-       
+
         working_day = Alpha_Domains.calculate_working_days(start, end)
         try:
             mean = df_1d["netProfit"].mean()
@@ -501,7 +511,6 @@ class Alpha_Domains:
         Tính Maximum Drawdown (MDD) có xét đến equity ban đầu.
         - MDD% được tính từ CDD% = (cummax - cumNetProfit) / (equity + cummax)
         """
-
         if 'cumNetProfit' in df_1d:
             net_profit = df_1d['cumNetProfit']
         else:

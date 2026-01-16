@@ -30,10 +30,11 @@ def os_wfa_backtest(id, start, end):
         return
     alpha_name = alpha_doc.get("alpha_name", "")
     source = alpha_doc.get("source", None)
+    overnight = alpha_doc.get("overnight", False)
     gen = alpha_doc.get("gen", "1_2")
     fee = _fa.get("fee", 0.175)
     DIC_ALPHAS = Domains.get_list_of_alphas()
-    dic_freqs = load_dic_freqs(source)
+    dic_freqs = load_dic_freqs(source, overnight)
     df_tick = pd.read_pickle("/home/ubuntu/nevir/data/busd.pkl")
     
     _os = _fa.get("os", None)
@@ -63,7 +64,8 @@ def os_wfa_backtest(id, start, end):
             booksize=book_size,
             is_sizing=is_sizing,
             init_sizing=init_sizing,
-            source=source
+            source=source,
+            overnight=overnight
         )
         bt.compute_mega()
         bt.compute_performance()

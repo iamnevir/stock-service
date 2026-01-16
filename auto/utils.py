@@ -45,7 +45,7 @@ def sanitize_for_bson(obj):
             return [sanitize_for_bson(x) for x in obj]
         return obj
 
-def make_key_alpha(config, alpha_name, fee, start, end, stop_loss=0, gen=None,source=None):
+def make_key_alpha(config, alpha_name, fee, start, end, stop_loss=0, gen=None,source=None,overnight=False):
     identity = {
         "config": config,
         "alpha_name": alpha_name,
@@ -57,6 +57,8 @@ def make_key_alpha(config, alpha_name, fee, start, end, stop_loss=0, gen=None,so
     }
     if source is not None:
         identity["source"] = source
+    if overnight:
+        identity["overnight"] = overnight
     identity_str = json.dumps(identity, sort_keys=True)
     return hashlib.md5(identity_str.encode()).hexdigest()
 
@@ -73,7 +75,7 @@ def make_key_mega(configs, alpha_name, fee, start, end, stop_loss=0, gen=None):
     identity_str = json.dumps(identity, sort_keys=True)
     return hashlib.md5(identity_str.encode()).hexdigest()
 
-def load_dic_freqs(source):
+def load_dic_freqs(source,overnight=False):
     if source == "dollar_bar":
         fn = "/home/ubuntu/nevir/gen/dic_freqs_dollar_bar.pickle"
     elif source == "volume_bar":
@@ -86,6 +88,14 @@ def load_dic_freqs(source):
         fn = "/home/ubuntu/nevir/gen/alpha.pkl"
     with open(fn, 'rb') as file:
         dic_freqs = pickle.load(file)
+    if overnight:
+        for freq in dic_freqs.keys():
+            df = dic_freqs[freq].copy()
+            
+            df.loc[df['executionTime'] == '14:45:00', 'exitPrice'] = df['open'].shift(-2)
+            df['priceChange'] = df['exitPrice'] - df['entryPrice']
+            
+            dic_freqs[freq] = df
     return dic_freqs
     
 import logging

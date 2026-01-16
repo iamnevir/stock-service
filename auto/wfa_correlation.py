@@ -44,10 +44,11 @@ def correlation(id, start, end):
     
     source = alpha_doc.get("source", None)
     gen = alpha_doc.get("gen")
+    overnight = alpha_doc.get("overnight",False)
     fee = fa.get("fee")
     filter_report = fa.get("filter_report")
     DIC_ALPHAS = Domains.get_list_of_alphas()
-    dic_freqs = load_dic_freqs(source)
+    dic_freqs = load_dic_freqs(source, overnight)
     need_configs = filter_report.get("strategies", [])
     try:
         list_ids = [make_key_alpha(
@@ -57,7 +58,8 @@ def correlation(id, start, end):
                 end=end,
                 alpha_name=alpha_name,
                 gen=gen,
-                source=source
+                source=source,
+                overnight=overnight
             ) for config in need_configs]
         exist_stra = list(coll.find({"_id": {"$in": list_ids}}))
         logger.info(f"🔎 Found {len(exist_stra)} existing backtest results in DB.")
@@ -82,7 +84,7 @@ def correlation(id, start, end):
             batch_size_configs = total if total < 1000 else 1000
             batches = [run_configs[i:i + batch_size_configs] for i in range(0, total, batch_size_configs)]
             
-            args_list = [(batch, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source) for batch in batches]
+            args_list = [(batch, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight) for batch in batches]
             
             logger.info(f"Chạy với {n_workers} processes, tổng {len(batches)} batches mỗi batch {batch_size_configs} configs.")
             temp_batch = []

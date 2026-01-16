@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
 class Simulator:
-    def __init__(self, alpha_name, freq=1, gen_params=None, fee=0.1, df_alpha=None,DIC_ALPHAS=None,params={},df_tick=None,gen=None,stop_loss=0,is_sizing=False,init_sizing=37.5,start=None,end=None,booksize=1,source=""): 
+    def __init__(self, alpha_name, freq=1, gen_params=None, fee=0.1, df_alpha=None,DIC_ALPHAS=None,params={},df_tick=None,gen=None,stop_loss=0,is_sizing=False,init_sizing=37.5,start=None,end=None,booksize=1,source="",overnight=False): 
 
         self.freq = freq
         self.gen_params = gen_params
@@ -14,6 +14,7 @@ class Simulator:
         self.start = start
         self.end = end
         self.source = source
+        self.overnight = overnight
         # df_alpha = df_alpha[(df_alpha['day'] >= start) & (df_alpha['day'] <= end)].copy()
         self.booksize = booksize
         ohlc_cols = ["open","high","low","close"]
@@ -67,24 +68,28 @@ class Simulator:
         if self.gen == "1_1":
             Alpha_Domains.compute_position(
                 df_alpha=self.df_alpha,
-                threshold=self.gen_params['threshold'])
+                threshold=self.gen_params['threshold'],
+                overnight=self.overnight)
         elif self.gen == "1_2":
             Alpha_Domains.compute_positions_with_thresholds(
                 df_alpha=self.df_alpha,
                 upper=self.gen_params['upper'],
-                lower=self.gen_params['lower'])
+                lower=self.gen_params['lower'],
+                overnight=self.overnight)
         elif self.gen == "1_3":
             Alpha_Domains.compute_positions_with_signal_score(
                 df_alpha=self.df_alpha,
                 score_window=self.gen_params['score'],
                 entry_score=self.gen_params['entry'],
-                exit_score=self.gen_params['exit'])
+                exit_score=self.gen_params['exit'],
+                overnight=self.overnight)
         elif self.gen == "1_4":
             Alpha_Domains.compute_position_with_velocity(
                 df_alpha=self.df_alpha,
                 vel_entry=self.gen_params['entry'],
                 vel_exit=self.gen_params['exit'],
-                smooth_window=self.gen_params['smooth'] )
+                smooth_window=self.gen_params['smooth'],
+                overnight=self.overnight)
         if self.source == "ha_confirm":
             Alpha_Domains.ha_confirm(self.df_alpha, N=3)
         if self.is_sizing:
@@ -132,11 +137,11 @@ class Simulator:
         Alpha_Domains.compute_profits(self.df_alpha,self.stop_loss,self.fee)
 
     def compute_performance(self, start=None, end=None):
- 
         self.df_1d, report = Alpha_Domains.compute_performance(
             self.df_alpha,
             start=start,
-            end=end,equity = self.booksize*300)
+            end=end,equity = self.booksize*300,
+            overnight=self.overnight)
         self.report.update(report)
     def merge_position_to_ticks(self):
         self.df_alpha = Alpha_Domains.merge_position_to_ticks(self.df_alpha,self.df_tick)
@@ -150,6 +155,17 @@ class Simulator:
         return Alpha_Domains.extract_net_profits(self.df_alpha)
     
 class Alpha_Domains:
+    lst_day_maturity = [
+        '2017_11_16', '2017_12_21', 
+        '2018_01_18','2018_02_13', '2018_03_15', '2018_04_19', '2018_05_17', '2018_06_21', '2018_07_19', '2018_08_16', '2018_09_20', '2018_10_18', '2018_11_15', '2018_12_20',
+        '2019_01_17', '2019_02_21', '2019_03_21', '2019_04_18', '2019_05_16', '2019_06_20', '2019_07_18', '2019_08_15', '2019_09_19', '2019_10_17', '2019_11_21', '2019_12_19', 
+        '2020_01_16', '2020_02_20', '2020_03_19', '2020_04_16', '2020_05_21', '2020_06_18', '2020_07_16', '2020_08_20', '2020_09_17', '2020_10_15', '2020_11_19', '2020_12_17', 
+        '2021_01_21', '2021_02_18', '2021_03_18', '2021_04_15', '2021_05_20', '2021_06_17', '2021_07_15', '2021_08_19', '2021_09_16', '2021_10_21', '2021_11_18', '2021_12_16', 
+        '2022_01_20', '2022_02_17', '2022_03_17', '2022_04_21', '2022_05_19', '2022_06_16', '2022_07_21', '2022_08_18', '2022_09_15', '2022_10_20', '2022_11_17', '2022_12_15', 
+        '2023_01_19', '2023_02_16', '2023_03_16', '2023_04_20', '2023_05_18', '2023_06_15', '2023_07_20', '2023_08_17', '2023_09_21', '2023_10_19', '2023_11_16', '2023_12_21', 
+        '2024_01_18', '2024_02_15', '2024_03_21', '2024_04_17', '2024_05_16', '2024_06_20', '2024_07_18', '2024_08_15', '2024_09_19', '2024_10_17', '2024_11_21', '2024_12_19', 
+        '2025_01_16', '2025_02_20', '2025_03_20', '2025_04_17', '2025_05_15', '2025_06_19', '2025_07_17', '2025_08_21', '2025_09_18', '2025_10_16', '2025_11_20', '2025_12_18']
+    
     @staticmethod
     def compute_signal(alpha_func, df_alpha, params={}):
         
@@ -158,33 +174,51 @@ class Alpha_Domains:
         # print(df_alpha['signal'].sum())
 
 
-    def compute_position(df_alpha, threshold):
+    def compute_position(df_alpha, threshold, overnight=False):
         
         flt_mediocre = df_alpha['signal'].abs() < threshold
         df_alpha.loc[flt_mediocre, 'signal'] = np.nan
         
         df_alpha['position'] = df_alpha['signal']  
-        Alpha_Domains.adjust_positions(df_alpha)
+        Alpha_Domains.adjust_positions(df_alpha, overnight)
         
         df_alpha['position'] = np.sign(df_alpha['position'])
         
     @staticmethod
-    def adjust_positions(df_alpha):
-        flt_unexecutable = ~df_alpha['executable']
-        df_alpha.loc[flt_unexecutable, 'position'] = np.nan
-        flt_atc = df_alpha['executionTime'] == '14:45:00'
-        df_alpha.loc[flt_atc, 'position'] = 0
+    def adjust_positions(df_alpha, overnight=False):
+        if overnight:
+            Alpha_Domains.overnight_positions(df_alpha)
+        else:
+            flt_unexecutable = ~df_alpha['executable']
+            df_alpha.loc[flt_unexecutable, 'position'] = np.nan
+            flt_atc = df_alpha['executionTime'] == '14:45:00'
+            df_alpha.loc[flt_atc, 'position'] = 0
+            df_alpha['position'] = df_alpha['position'].ffill().fillna(0)
+        
+    @staticmethod
+    def overnight_positions(df_alpha):
+        
+        is_atc = df_alpha['executionTime'] == '14:45:00'
+        is_maturity = df_alpha['day'].isin(Alpha_Domains.lst_day_maturity)
+        is_unexecutable = ~df_alpha['executable']
+        cond_list = [
+            (is_atc & is_maturity),           
+            (is_unexecutable | is_atc)      
+        ]
+        choice_list = [0, np.nan]
+
+        df_alpha['position'] = np.select(cond_list, choice_list, default=df_alpha['position'])
         df_alpha['position'] = df_alpha['position'].ffill().fillna(0)
         
     @staticmethod
-    def compute_positions_with_signal_score(df_alpha, score_window=5, entry_score=3, exit_score=1):
+    def compute_positions_with_signal_score(df_alpha, score_window=5, entry_score=3, exit_score=1, overnight=False):
         """
         Cộng điểm theo hướng tín hiệu trong cửa sổ thời gian ngắn.
         - Khi tổng điểm >= entry_score -> mở vị thế long
         - Khi tổng điểm <= -entry_score -> mở vị thế short
         - Khi |tổng điểm| <= exit_score -> đóng vị thế
         """
-        Alpha_Domains.adjust_positions(df_alpha)
+        Alpha_Domains.adjust_positions(df_alpha, overnight)
         signed_signal = np.sign(df_alpha['position'].fillna(0))
         rolling_score = signed_signal.rolling(score_window, min_periods=1).sum()
 
@@ -200,10 +234,10 @@ class Alpha_Domains:
             new_positions.append(current_pos)
 
         df_alpha['position'] = new_positions
-        Alpha_Domains.adjust_positions(df_alpha)
+        Alpha_Domains.adjust_positions(df_alpha, overnight)
     
     @staticmethod
-    def compute_position_with_velocity(df_alpha, vel_entry=0.2, vel_exit=0.05, smooth_window=1):
+    def compute_position_with_velocity(df_alpha, vel_entry=0.2, vel_exit=0.05, smooth_window=1, overnight=False):
         
         """
         Vào lệnh theo tốc độ thay đổi tín hiệu:
@@ -212,7 +246,7 @@ class Alpha_Domains:
         - Khi |velocity| < vel_exit -> đóng vị thế
         Có thể làm mượt velocity bằng rolling mean (smooth_window > 1).
         """
-        Alpha_Domains.adjust_positions(df_alpha)
+        Alpha_Domains.adjust_positions(df_alpha, overnight)
 
         velocity = df_alpha['position'].diff().fillna(0)
         if smooth_window > 1:
@@ -230,7 +264,7 @@ class Alpha_Domains:
             new_positions.append(current_pos)
 
         df_alpha['position'] = new_positions
-        Alpha_Domains.adjust_positions(df_alpha)
+        Alpha_Domains.adjust_positions(df_alpha, overnight)
         
     @staticmethod
     def ha_confirm(df_alpha, N=3):
@@ -255,9 +289,9 @@ class Alpha_Domains:
         Alpha_Domains.adjust_positions(df_alpha)
         
     @staticmethod
-    def compute_positions_with_thresholds(df_alpha, upper, lower):
+    def compute_positions_with_thresholds(df_alpha, upper, lower, overnight=False):
         
-        Alpha_Domains.adjust_positions(df_alpha)
+        Alpha_Domains.adjust_positions(df_alpha, overnight)
         lst_pos = []
         last_pos = 0
         for pos in df_alpha['position']:
@@ -269,7 +303,7 @@ class Alpha_Domains:
                 last_pos = 0
             lst_pos.append(last_pos)
         df_alpha['position'] = lst_pos
-        Alpha_Domains.adjust_positions(df_alpha)
+        Alpha_Domains.adjust_positions(df_alpha, overnight)
         
     @staticmethod
     def compute_action_tvr_and_fee(df_alpha, fee):
@@ -468,7 +502,7 @@ class Alpha_Domains:
         return round(working_days)
 
     @staticmethod
-    def compute_performance(df_alpha, start=None, end=None,equity=300):
+    def compute_performance(df_alpha, start=None, end=None,equity=300,overnight=False):
         try:
             lst_errs = []
             
@@ -478,7 +512,8 @@ class Alpha_Domains:
                 "turnover": "sum",
                 "netProfit": "sum",
             }
-
+            if overnight:
+                df_alpha.loc[(df_alpha['executionTime'] == '14:45:00') & (df_alpha['executable'] == True), 'day'] = df_alpha['day'].shift(-1)
             if "booksize" in df_alpha.columns:
                 agg_dict["booksize"] = "last"
             df_1d = df_alpha \
@@ -576,7 +611,7 @@ class Alpha_Domains:
             df_1d['ccd1'] = cdd_pct
             df_1d['mdd1'] = mdd_pct
             
-            # print(df_alpha[df_alpha['day'] == "2025_12_08"][['open',"high","low","close",'executionT',"position","entryPrice","exitPrice","grossProfit","netProfit","signal"]])
+            # print(df_alpha[df_alpha['day'] == "2025_12_31"][['open',"high","low","close",'executionT',"position","entryPrice","exitPrice","grossProfit","netProfit","signal"]])
             # Alpha_Domains.extract_trades_df(df_alpha)
             return df_1d, new_report
         except Exception as e:

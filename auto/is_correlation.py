@@ -12,7 +12,7 @@ from gen.alpha_func_lib import Domains
 from gen.core import Simulator
 from pymongo.errors import BulkWriteError
 
-def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None, start=None, end=None, source=None):
+def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None, start=None, end=None, source=None, overnight=False):
     gen_params = {}
     if gen == "1_1":
         freq, threshold, halflife, *rest = config.split("_")
@@ -103,7 +103,8 @@ def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None,
         gen=gen,
         start=start,
         end=end,
-        source=source
+        source=source,
+        overnight=overnight
     )
     bt.compute_signal()
     bt.compute_position()
@@ -122,7 +123,8 @@ def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None,
                 end=end,
                 alpha_name=alpha_name,
                 gen=gen,
-                source=source)
+                source=source,
+                overnight=overnight)
 
     keys_to_delete = ["aroe", "cdd", "cddPct","lastProfit","max_loss","max_gross","num_trades"]
     for key in keys_to_delete:
@@ -133,10 +135,10 @@ def worker_task_batch(args):
     """
     Mỗi worker xử lý 1 batch (1000 configs)
     """
-    batch_configs, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source = args
+    batch_configs, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight = args
     results = []
     for cfg in batch_configs:
-        rpt = run_single_backtest(cfg, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source)
+        rpt = run_single_backtest(cfg, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight)
         results.append(rpt)
     return results
 
