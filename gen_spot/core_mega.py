@@ -9,32 +9,54 @@ def worker_compute_process(index, config, gen, base_name, fee, dic_freqs, df_tic
 
     # ====== PARSE CONFIG (logic giữ nguyên 100%) ======
     gen_params = {}
-    parts = config.split("_")
     params = {}
+    parts = config.split("_")
+
+    def parse_rest(rest, base_name, params):
+        if len(rest) >= 1:
+            params["window"] = int(rest[0])
+        if len(rest) >= 2:
+            params["factor"] = float(rest[1])
+        if base_name == "base_005" and len(rest) >= 3:
+            params["window_rank"] = int(rest[2])
+
 
     if gen == "1_3":
         freq, score, entry, exit, *rest = parts
-        freq, score, entry, exit = int(freq), int(score), float(entry), float(exit)
-        if len(rest) >= 1: params["window"] = int(rest[0])
-        if len(rest) >= 2: params["factor"] = float(rest[1])
-        gen_params["score"] = score
-        gen_params["entry"] = entry
-        gen_params["exit"] = exit
+        freq, score = int(freq), int(score)
+        entry, exit = float(entry), float(exit)
+
+        parse_rest(rest, base_name, params)
+
+        gen_params = {
+            "score": score,
+            "entry": entry,
+            "exit": exit
+        }
 
     elif gen == "1_2":
         freq, upper, lower, *rest = parts
-        freq, upper, lower = int(freq), float(upper), float(lower)
-        if len(rest) >= 1: params["window"] = int(rest[0])
-        if len(rest) >= 2: params["factor"] = float(rest[1])
-        gen_params["upper"] = upper
-        gen_params["lower"] = lower
+        freq = int(freq)
+        upper, lower = float(upper), float(lower)
+
+        parse_rest(rest, base_name, params)
+
+        gen_params = {
+            "upper": upper,
+            "lower": lower
+        }
 
     elif gen == "1_1":
         freq, threshold, *rest = parts
-        freq, threshold = int(freq), float(threshold)
-        if len(rest) >= 1: params["window"] = int(rest[0])
-        if len(rest) >= 2: params["factor"] = float(rest[1])
-        gen_params["threshold"] = threshold
+        freq = int(freq)
+        threshold = float(threshold)
+
+        parse_rest(rest, base_name, params)
+
+        gen_params = {
+            "threshold": threshold
+        }
+
 
     
     # ====== RUN SIMULATORGEN ======
