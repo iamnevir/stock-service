@@ -317,15 +317,15 @@ class Base:
     #     return signal
 
     @staticmethod
-    def base_003(df, window, factor):
+    def base_003(df, window, window_rank):
         busd_min = df['based_col'].rolling(window=window).min()
-        busd_max = df['based_col'].rolling(window=factor).max()
+        busd_max = df['based_col'].rolling(window=window_rank).max()
         range_busd = busd_max - busd_min
 
         ma_busd = df['based_col'].rolling(window=window).mean()
         
         spring_force = (df['based_col'] - ma_busd) / (range_busd + 1e-6)
-        signal = 2 * spring_force.rolling(window=factor).rank(pct=True) - 1
+        signal = 2 * spring_force.rolling(window=window_rank).rank(pct=True) - 1
 
         return signal
     

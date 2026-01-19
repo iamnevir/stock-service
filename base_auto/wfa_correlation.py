@@ -21,7 +21,10 @@ def run_single_backtest(config, base_name,fee, dic_freqs, DIC_BASES, gen=None, s
         if len(rest) > 0:
             params["window"] = int(rest[0])
         if len(rest) > 1:
-            params["factor"] = float(rest[1])
+            if base_name == "base_003":
+                params["window_rank"] = int(rest[1])
+            else:
+                params["factor"] = float(rest[1])
         if base_name == "base_005" and len(rest) > 2:
             params["window_rank"] = int(rest[2])
 
