@@ -15,81 +15,64 @@ from itertools import combinations, islice
 from gen_spot.core import Simulator
 
 def run_single_backtest(config, base_name,fee, dic_freqs, DIC_BASES, gen=None, start=None, end=None, source=None):
+    def parse_common_params(rest, base_name):
+        params = {}
+
+        if len(rest) > 0:
+            params["window"] = int(rest[0])
+        if len(rest) > 1:
+            params["factor"] = float(rest[1])
+        if base_name == "base_005" and len(rest) > 2:
+            params["window_rank"] = int(rest[2])
+
+        return params
     gen_params = {}
+    params = {}
+
+    parts = config.split("_")
+
     if gen == "1_1":
-        freq, threshold, *rest = config.split("_")
-        freq, threshold = int(freq), float(threshold)
-        factor = float(rest[1]) if len(rest) > 1 else None
-        window = int(rest[0]) if rest else None
-        gen_params = {
-            "threshold": threshold,
-        }
-        params = {}
-        if factor is not None:
-            params["factor"] = factor
-        if window is not None:
-            params["window"] = window
+        freq, threshold, *rest = parts
+        freq = int(freq)
+        threshold = float(threshold)
+
+        params = parse_common_params(rest, base_name)
+        gen_params = {"threshold": threshold}
+
     elif gen == "1_2":
-        if base_name == "base_075":
-            freq, upper, lower, *rest = config.split("_")
-            freq, upper, lower = int(freq), float(upper), float(lower)
-            params = {}
-            window = int(rest[0]) if rest else None
-            window_corr_vwap = float(rest[1]) if len(rest) >= 2 else None
-            window_corr_volume = float(rest[2]) if len(rest) >= 3 else None
-            if window is not None:
-                params["window"] = window
-            if window_corr_vwap is not None:
-                params["window_corr_vwap"] = window_corr_vwap
-            if window_corr_volume is not None:
-                params["window_corr_volume"] = window_corr_volume
-            gen_params = {
-                "upper": upper,
-                "lower": lower
-            }
-        freq, upper, lower, *rest = config.split("_")
-        freq, upper, lower = int(freq), float(upper), float(lower)
-        params = {}
-        window = int(rest[0]) if rest else None
-        factor = float(rest[1]) if len(rest) >= 2 else None
-        if window is not None:
-            params["window"] = window
-        if factor is not None:
-            params["factor"] = factor
+        freq, upper, lower, *rest = parts
+        freq = int(freq)
+        upper, lower = float(upper), float(lower)
+
+        params = parse_common_params(rest, base_name)
         gen_params = {
             "upper": upper,
             "lower": lower
         }
+
     elif gen == "1_3":
-        freq, score, entry, exit, *rest = config.split("_")
-        freq, score, entry, exit = int(freq), int(score), float(entry), float(exit)
-        params = {}
-        window = int(rest[0]) if rest else None
-        factor = float(rest[1]) if len(rest) >= 2 else None
-        if window is not None:
-            params["window"] = window
-        if factor is not None:
-            params["factor"] = factor
+        freq, score, entry, exit, *rest = parts
+        freq = int(freq)
+        score = int(score)
+        entry, exit = float(entry), float(exit)
+
+        params = parse_common_params(rest, base_name)
         gen_params = {
-            "score":score,
-            "entry":entry,
-            "exit":exit
+            "score": score,
+            "entry": entry,
+            "exit": exit
         }
-    
+
     elif gen == "1_4":
-        freq, entry, exit, smooth, *rest = config.split("_")
-        freq, entry, exit, smooth = int(freq), float(entry), float(exit), float(smooth)
-        params = {}
-        window = int(rest[0]) if rest else None
-        factor = float(rest[0]) if rest else None
-        if window is not None:
-            params["window"] = window
-        if factor is not None:
-            params["factor"] = factor
+        freq, entry, exit, smooth, *rest = parts
+        freq = int(freq)
+        entry, exit, smooth = float(entry), float(exit), float(smooth)
+
+        params = parse_common_params(rest, base_name)
         gen_params = {
-            "entry":entry,
-            "exit":exit,
-            "smooth":smooth
+            "entry": entry,
+            "exit": exit,
+            "smooth": smooth
         }
     bt = Simulator(
         base_name=base_name,

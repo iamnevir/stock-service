@@ -304,96 +304,55 @@ class Base:
         
         return signal
     
+    # @staticmethod
+    # def base_002(df, window_fast, window_slow, window_rank):
+    #     df['acc_ofp'] = df["based_col"].cumsum()
+    #     df['ema_fast'] = df.groupby('day')['acc_ofp'].transform(lambda x: x.ewm(span=window_fast).mean())
+    #     df['ema_slow'] = df.groupby('day')['acc_ofp'].transform(lambda x: x.ewm(span=window_slow).mean())
+    #     raw_sig = df['ema_fast'] - df['ema_slow']
+    #     rank_pct = raw_sig.rolling(window_rank).rank(pct=True)
+
+    #     signal = 2 * rank_pct - 1
+
+    #     return signal
+
     @staticmethod
-    def base_002(df, window_fast, window_slow, window_rank):
-        df['acc_ofp'] = df["based_col"].cumsum()
-        df['ema_fast'] = df.groupby('day')['acc_ofp'].transform(lambda x: x.ewm(span=window_fast).mean())
-        df['ema_slow'] = df.groupby('day')['acc_ofp'].transform(lambda x: x.ewm(span=window_slow).mean())
-        raw_sig = df['ema_fast'] - df['ema_slow']
-        rank_pct = raw_sig.rolling(window_rank).rank(pct=True)
+    def base_003(df, window, factor):
+        busd_min = df['based_col'].rolling(window=window).min()
+        busd_max = df['based_col'].rolling(window=factor).max()
+        range_busd = busd_max - busd_min
 
-        signal = 2 * rank_pct - 1
-
-        return signal
-    
-    @staticmethod
-    def base_003(df, window):
-        close_diff = df["based_col"].diff(1)
-        signal = close_diff
-        flt_min = 0 >= close_diff.rolling(window).min()
-        flt_max = close_diff.rolling(window).max() < 0
-        signal.loc[flt_min & flt_max] = close_diff
-        signal.loc[flt_min & (~flt_max)] = -close_diff
-
-        lower, upper = signal.quantile(0.05), signal.quantile(0.95)
-        normalized_signal = signal / (upper - lower)
-        signal = -normalized_signal
-
-        return signal
-     
-    @staticmethod
-    def alpha_009( df, window):
-        close_diff = df['based_col'].diff(1)
-        signal = close_diff
-        flt_min = 0 >= close_diff.rolling(window).min()
-        flt_max = close_diff.rolling(window).max() < 0
-        signal.loc[flt_min & flt_max] = close_diff
-        signal.loc[flt_min & (~flt_max)] = -close_diff
-
-        lower, upper = signal.quantile(0.05), signal.quantile(0.95)
-        normalized_signal = signal / (upper - lower)
-        signal = -normalized_signal
-
-        return signal
-    
-    @staticmethod
-    def alpha_new_018(df,window,factor):
-        ofp = df['based_col']
-
-        rolling_mean = O.ts_mean(ofp, window)
-        rolling_std = O.ts_std(ofp, window)
-        normalized_vol = 4.0 * rolling_std / (rolling_mean.abs() + 1e-9)
-        vol_expanding = O.ts_delta(normalized_vol, factor) > 0
-        mean_reversion = -O.ts_delta(ofp, factor)
-        conditional_signal = mean_reversion.where(vol_expanding, 0)
-        ts_rank = O.ts_rank_normalized(conditional_signal, window=window)
-        signal = -(2 * ts_rank - 1)
-        return signal
-    
-    @staticmethod
-    def alpha_049(df):
-        delay = lambda df, window: df.shift(window)
-        based_col = df['based_col']
-        flt = ((((delay(based_col, 20) - delay(based_col, 10)) / 10) - ((delay(based_col, 10) - based_col) / 10)) < (-1 * 0.1))
-        signal = pd.DataFrame(
-            {
-                'signal': np.ones_like(based_col)
-            },
-            index=based_col.index)
-        based_col = based_col.loc[~flt]
-        signal.loc[~flt, 'signal'] = ((-1 * 1) * (based_col - delay(based_col, 1)))
-        signal = signal / 30
+        ma_busd = df['based_col'].rolling(window=window).mean()
         
-        return - signal
-    
-    def alpha_004(df, window):
+        spring_force = (df['based_col'] - ma_busd) / (range_busd + 1e-6)
+        signal = 2 * spring_force.rolling(window=factor).rank(pct=True) - 1
 
+        return signal
+    
+    @staticmethod
+    def base_004(df, window, factor):
         raw_signal = O.ts_rank(O.ts_rank(df['based_col'], window=window), window=window)
         signal = (raw_signal / window) * 2 - 1
+        if factor > 0: 
+            signal = signal.ewm(halflife=factor).mean()
+            
         return signal
     
-    def alpha_010(df, window, factor):
+    @staticmethod
+    def base_005(df, window, factor, window_rank):
+        roll_busd = df['based_col'].rolling(window)
+        avg_flow, std_flow = roll_busd.mean(), roll_busd.std()
+        flow_min, flow_max = roll_busd.min(), roll_busd.max()
+    
+        spring_force = (df['based_col'] - avg_flow) / (flow_max - flow_min + 1e-6)
+        flow_intensity = (df['based_col'] - avg_flow) / (std_flow + 1e-6)
+        is_overloaded = flow_intensity.abs() > factor
+        trade_direction = np.where(is_overloaded, -1, 1)
+        
+        raw_signal = spring_force * trade_direction
+        signal = 2 * raw_signal.rolling(window_rank).rank(pct=True) - 1
 
-        close_diff = df['based_col'].diff(1)
-        signal = close_diff.copy() 
-
-        flt_min = 0 >= close_diff.rolling(window = window).min()
-        flt_max = close_diff.rolling(window = window).max() >= 0
-
-        signal.loc[flt_min & flt_max] = -close_diff
-        signal = (O.ts_rank(signal, window=factor) / (factor / 2)) - 1
-
-        return -signal
+        return signal
     
 class Domains:
 
