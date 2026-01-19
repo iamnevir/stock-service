@@ -4,6 +4,7 @@ from time import sleep
 from bson import ObjectId
 from pymongo import MongoClient
 
+from auto.wfa_cpcv import cpcv
 from auto.mega import os_wfa_backtest
 from auto.utils import get_mongo_uri, setup_logger
 from auto.view_correl import view_wfa_correlation
@@ -78,7 +79,8 @@ def run_all_wfa(alpha_id: str):
                 os_wfa_backtest(id=alpha_id, start=start, end=end)
 
             logger.info("WFA idx=%d done", idx)
-
+        logger.info("Run CPCV backtest", idx)
+        cpcv(alpha_id) 
     except Exception:
         logger.exception("run_all_wfa failed")
         raise
