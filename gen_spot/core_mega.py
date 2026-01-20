@@ -17,7 +17,7 @@ def worker_compute_process(index, config, gen, base_name, fee, dic_freqs, df_tic
             params["window"] = int(rest[0])
         if len(rest) >= 2:
             if base_name == "base_003":
-                params["window_rank"] = float(rest[1])
+                params["window_rank"] = int(rest[1])
             else:
                 params["factor"] = float(rest[1])
         if base_name == "base_005" and len(rest) >= 3:
@@ -61,7 +61,6 @@ def worker_compute_process(index, config, gen, base_name, fee, dic_freqs, df_tic
         }
 
 
-    
     # ====== RUN SIMULATORGEN ======
     bt = SimulatorGen(
         base_name=base_name,
