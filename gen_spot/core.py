@@ -129,7 +129,7 @@ class Base_Domains:
     @staticmethod
     def compute_signal(base_func, df_base, params={}):
         
-        df_base['position'] = df_base['signal'] = base_func(df_base,**params)
+        df_base['position'] = df_base['signal'] = round(base_func(df_base,**params),6)
 
 
 
