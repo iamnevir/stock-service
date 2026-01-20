@@ -129,8 +129,8 @@ class Base_Domains:
     @staticmethod
     def compute_signal(base_func, df_base, params={}):
         
-        df_base['position'] = df_base['signal'] = round(base_func(df_base,**params),6)
-
+        df_base['position'] = df_base['signal'] = base_func(df_base,**params)
+        
 
 
     def compute_position(df_base, threshold):
@@ -204,14 +204,16 @@ class Base_Domains:
 
         df_base['position'] = new_positions
         Base_Domains.adjust_positions(df_base)
-        
+            
     @staticmethod
     def compute_positions_with_thresholds(df_base, upper, lower):
         
         Base_Domains.adjust_positions(df_base)
         lst_pos = []
         last_pos = 0
-        for pos in df_base['position']:
+        df_base['signal'] = df_base['signal'].round(6)
+        for pos in df_base['signal']:
+
             if abs(pos) >= upper:
                 last_pos = np.sign(pos)
             elif (last_pos > 0) and pos < lower:
@@ -220,7 +222,8 @@ class Base_Domains:
                 last_pos = 0
             lst_pos.append(last_pos)
         df_base['position'] = lst_pos
-        Base_Domains.adjust_positions(df_base)
+        return Base_Domains.adjust_positions(df_base)
+        
         
     @staticmethod
     def compute_action_tvr_and_fee(df_base, fee):
@@ -429,7 +432,7 @@ class Base_Domains:
                 "turnover": "sum",
                 "netProfit": "sum",
             }
-
+            
             if "booksize" in df_base.columns:
                 agg_dict["booksize"] = "last"
             df_1d = df_base \
@@ -525,8 +528,9 @@ class Base_Domains:
             df_1d['netProfit'] = df_1d['netProfit'].round(2)
             df_1d['ccd1'] = cdd_pct
             df_1d['mdd1'] = mdd_pct
-            
-            # print(df_base[df_base['day'] == "2025_09_04"][['open','executionT',"position","entryPrice","exitPrice","grossProfit","netProfit","signal"]])
+            # print(df_1d)
+            # exit()
+            # print(df_base[df_base['day'] == "2022_02_11"][['executionT',"position","entryPrice","exitPrice","grossProfit","netProfit","signal"]])
             # Base_Domains.extract_trades_df(df_base)
             return df_1d, new_report
         except Exception as e:

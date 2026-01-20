@@ -282,7 +282,6 @@ class O:
 class Base:
     @staticmethod
     def base_001(df, window=20, factor = 0):
-
         # Tính toán Đường trung bình trượt (Moving Average - MA)
         ma = df["based_col"].rolling(window=window).mean()
         
@@ -301,7 +300,6 @@ class Base:
         )
         
         signal = 2 * signal - 1
-        
         return signal
     
     # @staticmethod
