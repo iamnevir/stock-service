@@ -449,7 +449,7 @@ def kill_busd_process():
 def get_server_status():
     cmd = "ps -eLo state | grep -c '^R'"
     running = int(subprocess.check_output(cmd, shell=True))
-    server_status = {"running":running}
+    server_status = {"cpu":round(running/os.cpu_count()*100,0)}
     return jsonify({"message": f"Get success.","result":server_status}), 200
 
 def create_app():
