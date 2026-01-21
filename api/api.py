@@ -445,6 +445,13 @@ def kill_busd_process():
     # except Exception as e:
     #     return jsonify({"message": str(e)}), 500
      
+@stock_bp.route('/get_server_status', methods=['GET'])
+def get_server_status():
+    cmd = "ps -C python -o pid= | wc -l"
+    count = int(subprocess.check_output(cmd, shell=True))
+    server_status = {"running":count}
+    return jsonify({"message": f"Get success.","result":server_status}), 200
+
 def create_app():
     app = Flask(__name__)
     CORS(app)
