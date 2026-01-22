@@ -92,7 +92,7 @@ def run_all_wfa(alpha_id: str):
         )
         logger.info("Set wfa_status=done")
         send_telegram_message(
-            f"WFA Alpha {alpha.get("group","")} {alpha.get("name","")} :\n"
+            f"WFA Alpha {alpha.get("group","").replace("%20"," ")} {alpha.get("name","")} :\n"
             "Import: ✅\n"
             "Filter: ✅\n"
             "Running: Done ✅"

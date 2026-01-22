@@ -90,7 +90,7 @@ def run_all_wfa(base_id: str):
         )
         logger.info("Set wfa_status=done")
         send_telegram_message(
-            f"WFA Base {base.get("group","")} {base.get("name","")} :\n"
+            f"WFA Base {base.get("group","").replace("%20"," ")} {base.get("name","")} :\n"
             "Import: ✅\n"
             "Filter: ✅\n"
             "Running: Done ✅"

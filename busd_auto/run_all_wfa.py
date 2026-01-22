@@ -90,7 +90,7 @@ def run_all_wfa(busd_id: str):
         )
         logger.info("Set wfa_status=done")
         send_telegram_message(
-            f"WFA BUSD {busd.get("group","")} {busd.get("name","")} :\n"
+            f"WFA BUSD {busd.get("group","").replace("%20"," ")} {busd.get("name","")} :\n"
             "Import: ✅\n"
             "Filter: ✅\n"
             "Running: Done ✅"
