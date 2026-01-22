@@ -51,10 +51,11 @@ def get_base_log():
             log_file = f"/home/ubuntu/nevir/base_auto/logs/{name}_{start}_{end}_wfa_correlation.log"
         else:
             return jsonify({"message": "Invalid log type"}), 400
+ 
         
-
         if not os.path.exists(log_file):
-            return jsonify({"message": "Log file not found"}), 404
+            print("no log file")
+            return jsonify({"message": "Log file not found"}), 200
 
         # 3️⃣ Đọc N dòng cuối cùng trong file log
         with open(log_file, "r", encoding="utf-8") as f:

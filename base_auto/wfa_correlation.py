@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from pymongo import MongoClient
 from bson import ObjectId
-from base_auto.utils import get_mongo_uri, insert_batch, load_dic_freqs, sanitize_for_bson, setup_logger, send_telegram_message, make_key_base
+from base_auto.utils import get_mongo_uri, insert_batch, load_dic_freqs, sanitize_for_bson, setup_logger, make_key_base
 from gen_spot.base_func_lib import Domains
 from itertools import combinations, islice
 
@@ -491,9 +491,6 @@ def correlation(id, start, end):
             {"$set": {"wfa.$.correlation.status": "error"}}
         )
         mongo_client.close()
-    # view_wfa_correlation(id=id,start=start,end=end)
-    # os_wfa_backtest(id=id, start=fa['os']['start'], end=fa['os']['end'])
-    send_telegram_message(f"✅ Correlation hoàn tất cho base: {name} {start}-{end} trong {time.time() - start_time:.2f}s.")
     
     
 def main():

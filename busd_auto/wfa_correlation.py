@@ -10,7 +10,7 @@ from bson import ObjectId
 from busd_auto.backtest import precompute_ma
 from busd_auto.is_correlation import calculate_combined_correlations, init_worker, worker_task_batch, save_results_to_db
 from busd_auto.mega import os_wfa_backtest
-from busd_auto.utils import get_mongo_uri, load_data, make_key, setup_logger, send_telegram_message
+from busd_auto.utils import get_mongo_uri, load_data, make_key, setup_logger
 from busd_auto.view_correl import view_wfa_correlation
 from busd_auto.wfo import gen_strategies
 
@@ -137,10 +137,7 @@ def correlation(id, start, end):
             "wfa.$.correlation.status": "done",
         }}
     )
-    send_telegram_message(f"✅ Correlation hoàn tất cho:{name} {start}-{end} trong {time.time() - start_time:.2f}s.")
     mongo_client.close()
-    # view_wfa_correlation(id=id,start=start,end=end)
-    # os_wfa_backtest(id=id, start=start, end=end)
     
 def main():
     if len(sys.argv) < 4:

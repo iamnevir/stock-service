@@ -4,8 +4,9 @@ from time import sleep
 from bson import ObjectId
 from pymongo import MongoClient
 
+from api.utils import send_telegram_message
 from base_auto.mega import os_wfa_backtest
-from base_auto.utils import get_mongo_uri, send_telegram_message, setup_logger
+from base_auto.utils import get_mongo_uri, setup_logger
 from base_auto.view_correl import view_wfa_correlation
 from base_auto.wfa_correlation import correlation as run_correlation
 
@@ -89,12 +90,14 @@ def run_all_wfa(base_id: str):
             {"$set": {"wfa_status": "done"}},
         )
         logger.info("Set wfa_status=done")
-        send_telegram_message(
-            f"WFA Base {base.get("group","").replace("%20"," ")} {base.get("name","")} :\n"
+        msg = (
+            f"WFA Group {base.get('group','').replace('%20',' ')} Name: {base.get('name','')} :\n"
             "Import: ✅\n"
             "Filter: ✅\n"
             "Running: Done ✅"
         )
+        send_telegram_message(msg)
+
 
 
         

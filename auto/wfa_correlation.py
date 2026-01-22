@@ -10,7 +10,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 from is_correlation import calculate_combined_correlations, worker_task_batch
 from mega import os_wfa_backtest
-from utils import get_mongo_uri, insert_batch, load_dic_freqs, setup_logger, send_telegram_message, make_key_alpha
+from utils import get_mongo_uri, insert_batch, load_dic_freqs, setup_logger, make_key_alpha
 from view_correl import view_wfa_correlation
 from wfo import gen_strategies
 from gen.alpha_func_lib import Domains
@@ -149,9 +149,6 @@ def correlation(id, start, end):
             {"$set": {"wfa.$.correlation.status": "error"}}
         )
         mongo_client.close()
-    # view_wfa_correlation(id=id,start=start,end=end)
-    # os_wfa_backtest(id=id, start=fa['os']['start'], end=fa['os']['end'])
-    send_telegram_message(f"✅ Correlation hoàn tất cho alpha: {name} {start}-{end} trong {time.time() - start_time:.2f}s.")
     
     
 def main():
