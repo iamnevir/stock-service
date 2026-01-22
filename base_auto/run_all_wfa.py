@@ -5,7 +5,7 @@ from bson import ObjectId
 from pymongo import MongoClient
 
 from base_auto.mega import os_wfa_backtest
-from base_auto.utils import get_mongo_uri, setup_logger
+from base_auto.utils import get_mongo_uri, send_telegram_message, setup_logger
 from base_auto.view_correl import view_wfa_correlation
 from base_auto.wfa_correlation import correlation as run_correlation
 
@@ -89,6 +89,12 @@ def run_all_wfa(base_id: str):
             {"$set": {"wfa_status": "done"}},
         )
         logger.info("Set wfa_status=done")
+        send_telegram_message(
+            f"WFA Base {base.get("group","")} {base.get("name","")} :\n"
+            "Import: ✅\n"
+            "Filter: ✅\n"
+            "Running: Done ✅"
+        )
 
 
         

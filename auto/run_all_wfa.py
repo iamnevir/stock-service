@@ -6,7 +6,7 @@ from pymongo import MongoClient
 
 from auto.wfa_cpcv import cpcv
 from auto.mega import os_wfa_backtest
-from auto.utils import get_mongo_uri, setup_logger
+from auto.utils import get_mongo_uri, send_telegram_message, setup_logger
 from auto.view_correl import view_wfa_correlation
 from auto.wfa_correlation import correlation as run_correlation
 
@@ -91,6 +91,12 @@ def run_all_wfa(alpha_id: str):
             {"$set": {"wfa_status": "done"}},
         )
         logger.info("Set wfa_status=done")
+        send_telegram_message(
+            f"WFA Alpha {alpha.get("group","")} {alpha.get("name","")} :\n"
+            "Import: ✅\n"
+            "Filter: ✅\n"
+            "Running: Done ✅"
+        )
 
 
         
