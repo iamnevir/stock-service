@@ -97,6 +97,7 @@ def run_all_wfa(alpha_id: str):
             "Import: ✅\n"
             "Filter: ✅\n"
             "Running: Done ✅"
+            f"🔗 http://103.253.20.31:8080/alpha-backtest/{alpha_id}"
         )
         send_telegram_message(msg)
 

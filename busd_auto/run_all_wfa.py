@@ -95,6 +95,7 @@ def run_all_wfa(busd_id: str):
             "Import: ✅\n"
             "Filter: ✅\n"
             "Running: Done ✅"
+             f"🔗 http://103.253.20.31:8080/busd-backtest/{busd_id}"
         )
         send_telegram_message(msg)
 

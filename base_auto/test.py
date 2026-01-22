@@ -1,9 +1,13 @@
-import subprocess
+
+from base_auto.utils import send_telegram_message
 
 
-p = subprocess.Popen(
-        ["/home/ubuntu/anaconda3/bin/python", "/home/ubuntu/nevir/base_auto/run_all_wfa.py", "6971825576b8ca66b4e1c04c"],
-        stdout=None,
-stderr=None,
-        start_new_session=True
-    )
+msg = (
+    "WFA Group :\n"
+    "Import: ✅\n"
+    "Filter: ✅\n"
+    "Running: Done ✅\n"
+    "🔗 http://103.253.20.31:8080/alpha-backtest/69717f0176b8ca66b4e1bfd2"
+)
+
+send_telegram_message(msg)
