@@ -11,7 +11,7 @@ import pandas as pd
 from pymongo import MongoClient
 from bson import ObjectId
 from busd_auto.backtest import worker_task_batch, precompute_ma, init_worker, save_results_to_db
-from busd_auto.utils import get_mongo_uri, load_data, make_key, send_telegram_message, setup_logger
+from busd_auto.utils import get_mongo_uri, load_data, make_key, setup_logger
 from gen.alpha_func_lib import Domains
 
 def gen_strategies(strategies,source,start,end,fee,delay):
@@ -184,7 +184,7 @@ def wfo(id):
 
         
         logger.info(f"🎯 Backtest hoàn tất cho {total} configs in {time.time() - p_start_time:.2f}s.")
-    send_telegram_message(f"✅ WFO hoàn tất cho alpha: {source} trong {time.time() - start_time:.2f}s.")
+ 
     mongo_client.close()
     logger.info(f"🎯 WFO hoàn tất trong {time.time() - start_time:.2f}s.")
 

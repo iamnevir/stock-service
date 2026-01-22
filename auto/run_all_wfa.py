@@ -4,7 +4,7 @@ from time import sleep
 from bson import ObjectId
 from pymongo import MongoClient
 
-from api.utils import send_telegram_message
+from auto.utils import send_telegram_message
 from auto.wfa_cpcv import cpcv
 from auto.mega import os_wfa_backtest
 from auto.utils import get_mongo_uri, setup_logger

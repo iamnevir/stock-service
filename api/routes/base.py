@@ -74,11 +74,13 @@ def run_all_base_wfa():
     base_id = data.get("id")
     if not base_id:
         return jsonify({"message": "Missing id"}), 400
-    
+    print("start running")
     p = subprocess.Popen(
         ["/home/ubuntu/anaconda3/bin/python", "/home/ubuntu/nevir/base_auto/run_all_wfa.py", base_id],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+#                 stdout=None,
+# stderr=None,
         start_new_session=True
     )
     print(f"Started run_all_wfa with PID {p.pid} for id {base_id}")
