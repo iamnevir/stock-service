@@ -126,236 +126,238 @@ def worker_task_batch(args):
         results.append(rpt)
     return results
 
-def calculate_trade_correlation_vectorized(df1, df2):
-    if df1.empty or df2.empty:
-        return 0.0, 0.0
+def calc_block_pair(args):
+    A, valid, idx_i, idx_j, lens_i, lens_j = args
+    Ti = len(idx_i)
+    Tj = len(idx_j)
 
-    time_tolerance = pd.Timedelta(seconds=0)
+    match = np.zeros((Ti, Tj), dtype=np.int32)
+    count = np.zeros((Ti, Tj), dtype=np.int32)
 
-    df1 = df1.sort_values('executionT')
-    df2 = df2.sort_values('executionT')
+    for t in range(A.shape[0]):
+        ai = A[t, idx_i][:, None]
+        aj = A[t, idx_j][None, :]
+        v = valid[t, idx_i][:, None] & valid[t, idx_j][None, :]
 
-    merged = pd.merge_asof(
-        df1[['executionT', 'action']],
-        df2[['executionT', 'action']],
-        on='executionT',
-        direction='nearest',
-        tolerance=time_tolerance,
-        suffixes=('_1', '_2')
-    )
+        same = (ai == aj)
+        match += same & v
+        count += v
 
-    # Lấy action
-    a1 = merged['action_1'].values
-    a2 = merged['action_2'].values
+    results = {}
+    for ii, i in enumerate(idx_i):
+        for jj, j in enumerate(idx_j):
+            if i >= j:
+                continue
+            if match[ii, jj] == 0:
+                continue
 
-    # Loại bỏ các dòng không match
-    valid = ~np.isnan(a2)
-    a1 = a1[valid]
-    a2 = a2[valid]
+            c1 = match[ii, jj] / lens_i[ii] * 100
+            c2 = match[ii, jj] / lens_j[jj] * 100
+            results[(i, j)] = round(max(c1, c2), 4)
 
-    # 🔥 Chuẩn hoá action về {-1, 0, 1}
-    a1 = np.where(a1 > 1, 1, np.where(a1 < 1, -1, 0))
-    a2 = np.where(a2 > 1, 1, np.where(a2 < 1, -1, 0))
-
-    # Match khi cùng direction
-    matches = (a1 == a2)
-
-    matched_count = np.sum(matches)
-
-    corr1 = round(matched_count / len(df1) * 100, 2)
-    corr2 = round(matched_count / len(df2) * 100, 2)
-
-    return max(corr1, corr2)
-
-# ---- process_chunk cũng phải ở cấp module ----
-def process_chunk(args):
-    """Worker: xử lý 1 chunk, trả về list kết quả"""
-    chunk, id_to_trade_df = args
-    results = []
-    for id1, id2 in chunk:
-        x, y = str(id1), str(id2)
-        df1, df2 = id_to_trade_df[id1], id_to_trade_df[id2]
-        c = calculate_trade_correlation_vectorized(df1, df2)
-        results.append({"x": x, "y": y, "c": round(c, 4)})
     return results
+
+def build_action_matrix(id_to_trade_df):
+    dfs = []
+    for sid, df in id_to_trade_df.items():
+        tmp = df[['executionT', 'action']].copy()
+        tmp['action'] = np.where(tmp['action'] > 1, 1,
+                        np.where(tmp['action'] < 1, -1, 0))
+        tmp = tmp.set_index('executionT')
+        tmp.rename(columns={'action': str(sid)}, inplace=True)
+        dfs.append(tmp)
+
+    # Align theo executionT
+    action_df = pd.concat(dfs, axis=1).sort_index()
+    return action_df
+
+def calculate_all_correlations_block_mp(action_df, block_size=500, n_core=20):
+    ids = action_df.columns.to_list()
+    A_raw = action_df.values
+
+    valid = ~np.isnan(A_raw)
+    A = np.nan_to_num(A_raw).astype(np.int8)
+
+    N = A.shape[1]
+    lens = valid.sum(axis=0)
+
+    blocks = [
+        np.arange(i, min(i + block_size, N))
+        for i in range(0, N, block_size)
+    ]
+
+    jobs = []
+    for bi, idx_i in enumerate(blocks):
+        for bj, idx_j in enumerate(blocks):
+            if bj < bi:
+                continue
+            jobs.append((
+                A,
+                valid,
+                idx_i,
+                idx_j,
+                lens[idx_i],
+                lens[idx_j],
+            ))
+
+    print(f"🚀 Running {len(jobs)} block-pairs on {n_core} cores")
+
+    results = {}
+    with mp.Pool(processes=n_core) as pool:
+        for res in pool.imap_unordered(calc_block_pair, jobs):
+            results.update(res)
+
+    return ids, results
 
 def calculate_combined_correlations(
     base_id,
     stras=None,
     logger=None,
     max_workers=20,
-    chunk_size=100000,
+    block_size=500,
     type="ios",
     start=None,
     end=None
 ):
     """
-    Tính toán tương quan base, sử dụng kiến trúc Producer-Consumer (Worker/Queue/Writer)
-    giống như hàm tính tương quan stock chuẩn.
+    Final clean version:
+    - Block-based correlation engine
+    - No existing_pairs
+    - MongoDB auto-skip duplicates
+    - Minimal insert schema: {x, y, c}
     """
-    
-    # === 0️⃣ Khởi tạo kết nối DB ===
-    # Các process con sẽ kế thừa kết nối này, 
-    # nhưng chỉ writer_worker thực sự dùng nó để ghi.
-    db = MongoClient(get_mongo_uri("mgc3"))['base']
+
+    start_time = time.time()
+
+    # === 0️⃣ MongoDB ===
+    db = MongoClient(get_mongo_uri())["base"]
     base_collection = db["base_collection"]
-    local_db = MongoClient(get_mongo_uri())['base']
-    correlation_coll = local_db["correlation_results"]
-    
-    # === 1️⃣ Chuẩn bị dữ liệu ===
-    logger.info("⏳ Đang chuẩn bị dữ liệu (parsing trades)...")
+    correlation_coll = db["correlation_results"]
+
+    # === 1️⃣ Parse trades ===
+    logger.info("⏳ Parsing trades...")
     id_to_trade_df = {}
 
-    def parse_trade_doc(doc):
+    for doc in stras:
         trades = doc.get("df_trade")
         if not isinstance(trades, list) or not trades:
-            return None
-        # Kiểm tra định dạng của base
-        if not all(isinstance(t, dict) and "executionT" in t and "action" in t for t in trades):
-            return None
+            continue
+
         df = pd.DataFrame(trades)
+        if "executionT" not in df or "action" not in df:
+            continue
+
         df["executionT"] = pd.to_datetime(df["executionT"], errors="coerce")
         df.dropna(subset=["executionT"], inplace=True)
-        return df if not df.empty else None
 
-    for doc in stras:
-        _id = doc["_id"]
-        trade_df = parse_trade_doc(doc)
-        if trade_df is not None:
-            id_to_trade_df[_id] = trade_df
+        if not df.empty:
+            id_to_trade_df[doc["_id"]] = df
 
-    def chunked_iterable(iterable, size):
-        it = iter(iterable)
-        while True:
-            chunk = list(islice(it, size))
-            if not chunk:
-                break
-            yield chunk
-
-    valid_ids = list(id_to_trade_df.keys())
-    
-    # === 2️⃣ Lọc các cặp đã tồn tại (Giống code chuẩn) ===
-    logger.info("🔎 Đang lấy danh sách cặp đã tồn tại trong MongoDB...")
-    str_ids = [str(i) for i in valid_ids]
-    existing_pairs = set()
-    
-    # Query hiệu quả hơn thay vì dùng 2 $in lớn
-    for x in str_ids:
-        cursor = correlation_coll.find(
-            {"x": x, "y": {"$in": str_ids}},
-            {"x": 1, "y": 1, "_id": 0}
-        )
-        for doc in cursor:
-            existing_pairs.add(tuple(sorted((doc["x"], doc["y"]))))
-
-    logger.info(f"✅ Đã có sẵn {len(existing_pairs):,} cặp trong DB — sẽ bỏ qua.")
-
-    # === 3️⃣ Sinh danh sách cặp cần xử lý (Giống code chuẩn) ===
-    all_pairs = []
-    total_combinations = 0
-    for id1, id2 in combinations(valid_ids, 2):
-        total_combinations += 1
-        key = tuple(sorted((str(id1), str(id2))))
-        if key not in existing_pairs:
-            all_pairs.append((id1, id2))
-
-    logger.info(f"🧮 Còn lại {len(all_pairs):,} cặp cần tính mới (trên tổng số {total_combinations:,} cặp).")
-    chunk_size = min(100000, len(all_pairs) // max_workers)
-    chunks = list(chunked_iterable(all_pairs, chunk_size))
-    total_chunks = len(chunks)
-    total_pairs_to_process = len(all_pairs)
-
-    logger.info(f"🔢 Tổng số cặp cần xử lý: {total_pairs_to_process}")
-    logger.info(f"📦 Tổng số chunk (mỗi chunk ~{chunk_size} cặp): {total_chunks}")
-    if type == "wfa":
-        base_collection.update_one(
-            {"_id": ObjectId(base_id), f"wfa.is.start": start, f"wfa.is.end": end},
-            {"$set": {"wfa.$.correlation.process": len(existing_pairs), f"wfa.$.correlation.total": total_combinations,f"wfa.$.correlation.status": "running"}}
-        )
-    else:
-        base_collection.update_one(
-            {"_id": ObjectId(base_id)},
-            {"$set": {f"{type}.correlation.process": len(existing_pairs), f"{type}.correlation.total": total_combinations,f"{type}.correlation.status": "running"}}
-        )
-
-    if not all_pairs:
-        logger.info("🏁 Không còn cặp nào để xử lý. Kết thúc.")
-        if type == "wfa":
-            base_collection.update_one(
-                {"_id": ObjectId(base_id), f"wfa.is.start": start, f"wfa.is.end": end},
-                {"$set": {f"{type}.$.correlation.status": "done"}}
-            )
-        else:
-            base_collection.update_one(
-                {"_id": ObjectId(base_id)},
-                {"$set": {f"{type}.correlation.status": "done"}}
-            )
+    if len(id_to_trade_df) < 2:
+        logger.info("⚠️ Not enough strategies to compute correlations.")
         return
-    total = sum(len(chunk) for chunk in chunks)
-    inserted = 0
-    temp_batch = []
-    last_update = time.time()
 
-    args_list = [(chunk, id_to_trade_df) for chunk in chunks]
+    # === 2️⃣ Update status: running ===
+    total_combinations = len(id_to_trade_df) * (len(id_to_trade_df) - 1) // 2
 
-    logger.info(f"🚀 Bắt đầu xử lý {len(chunks)} chunks với tối đa {max_workers} workers...")
-
-    with mp.Pool(processes=max_workers) as pool:
-        for batch_results in pool.imap_unordered(process_chunk, args_list, chunksize=1):
-            temp_batch.extend(batch_results)
-            inserted += len(batch_results)
-
-            # ✅ Cứ sau mỗi update_interval giây thì insert và cập nhật tiến độ
-            if time.time() - last_update >= 10:
-                if temp_batch:
-                    insert_batch(correlation_coll, temp_batch, batch_size=10000)
-                    temp_batch.clear()
-                if type == "wfa":
-                    base_collection.update_one(
-                        {"_id": ObjectId(base_id), "wfa.is.start": start, "wfa.is.end": end},
-                        {"$set": {"wfa.$.correlation.process": inserted}}
-                    )
-                else:
-                    base_collection.update_one(
-                        {"_id": ObjectId(base_id)},
-                        {"$set": {f"{type}.correlation.process": inserted}}
-                    )
-                logger.info(f"⏳ Progress update: {inserted}/{total}")
-                last_update = time.time()
-
-    # 🔚 Xử lý phần còn lại
-    if temp_batch:
-        insert_batch(correlation_coll, temp_batch, batch_size=10000)
-        temp_batch.clear()
-
-
-    logger.info(f"✅ Hoàn tất: {inserted}/{total} pairs đã xử lý.")
-
-    # === 8️⃣ Cập nhật process.done chính xác (Giống code chuẩn) ===
-    logger.info("🔄 Đang cập nhật lại số lượng chính xác cuối cùng...")
-    seen = set()
-    projection = {"x": 1, "y": 1, "_id": 0}
-    for x in str_ids:
-        cursor = correlation_coll.find(
-            {"x": x, "y": {"$in": str_ids}},
-            projection
-        )
-        for doc in cursor:
-            seen.add(tuple(sorted((doc["x"], doc["y"]))))
-
-    unique_pair_count = len(seen)
     if type == "wfa":
         base_collection.update_one(
             {"_id": ObjectId(base_id), "wfa.is.start": start, "wfa.is.end": end},
-            {"$set": {f"{type}.$.correlation.process": unique_pair_count, f"{type}.$.correlation.status": "done"}}
+            {"$set": {
+                "wfa.$.correlation.status": "running",
+                "wfa.$.correlation.process": 0,
+                "wfa.$.correlation.total": total_combinations
+            }}
         )
     else:
         base_collection.update_one(
             {"_id": ObjectId(base_id)},
-            {"$set": {f"{type}.correlation.process": unique_pair_count, f"{type}.correlation.status": "done"}}
+            {"$set": {
+                f"{type}.correlation.status": "running",
+                f"{type}.correlation.process": 0,
+                f"{type}.correlation.total": total_combinations
+            }}
         )
-    logger.info(f"✅ Đã cập nhật lại chính xác process = {unique_pair_count} và status = 'done'")
-  
+
+    # === 3️⃣ Build action matrix ===
+    logger.info("🧮 Building action matrix...")
+    action_df = build_action_matrix(id_to_trade_df)
+
+    # === 4️⃣ Compute correlations (BLOCK ENGINE) ===
+    logger.info("⚡ Computing correlations (block-based)...")
+    ids, corr_dict = calculate_all_correlations_block_mp(
+        action_df,
+        block_size=block_size,
+        n_core=max_workers
+    )
+
+    logger.info(f"🧠 Computed {len(corr_dict):,} correlation pairs")
+
+    # === 5️⃣ Prepare Mongo documents (MINIMAL) ===
+    docs = []
+    for (i, j), c in corr_dict.items():
+        x = str(ids[i])
+        y = str(ids[j])
+        if x > y:
+            x, y = y, x
+
+        docs.append({
+            "x": x,
+            "y": y,
+            "c": round(c, 4)
+        })
+
+    # === 6️⃣ Insert Mongo (skip duplicates) ===
+    logger.info(f"📦 Inserting {len(docs):,} correlations...")
+    inserted = 0
+    last_update = time.time()
+
+    from pymongo.errors import BulkWriteError
+
+    def chunked(iterable, size):
+        for i in range(0, len(iterable), size):
+            yield iterable[i:i + size]
+
+    for batch in chunked(docs, 10000):
+        try:
+            correlation_coll.insert_many(batch, ordered=False)
+            inserted += len(batch)
+        except BulkWriteError as e:
+            inserted += e.details.get("nInserted", 0)
+
+        if time.time() - last_update >= 10:
+            if type == "wfa":
+                base_collection.update_one(
+                    {"_id": ObjectId(base_id), "wfa.is.start": start, "wfa.is.end": end},
+                    {"$set": {"wfa.$.correlation.process": inserted}}
+                )
+            else:
+                base_collection.update_one(
+                    {"_id": ObjectId(base_id)},
+                    {"$set": {f"{type}.correlation.process": inserted}}
+                )
+
+            logger.info(f"⏳ Progress: {inserted}/{len(docs)}")
+            last_update = time.time()
+
+    # === 7️⃣ Done ===
+    if type == "wfa":
+        base_collection.update_one(
+            {"_id": ObjectId(base_id), "wfa.is.start": start, "wfa.is.end": end},
+            {"$set": {"wfa.$.correlation.status": "done"}}
+        )
+    else:
+        base_collection.update_one(
+            {"_id": ObjectId(base_id)},
+            {"$set": {f"{type}.correlation.status": "done"}}
+        )
+
+    logger.info(
+        f"✅ Done correlations | inserted={inserted:,} | "
+        f"time={time.time() - start_time:.2f}s"
+    )
+
+
 
 
 def correlation(id, start, end):

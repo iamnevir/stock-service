@@ -8,13 +8,244 @@ import numpy as np
 import pandas as pd
 from pymongo import MongoClient
 from bson import ObjectId
-from is_correlation import calculate_combined_correlations, worker_task_batch
+from is_correlation import worker_task_batch
 from mega import os_wfa_backtest
 from utils import get_mongo_uri, insert_batch, load_dic_freqs, setup_logger, make_key_alpha
 from view_correl import view_wfa_correlation
 from wfo import gen_strategies
 from gen.alpha_func_lib import Domains
 
+def calc_block_pair(args):
+    A, valid, idx_i, idx_j, lens_i, lens_j = args
+    Ti = len(idx_i)
+    Tj = len(idx_j)
+
+    match = np.zeros((Ti, Tj), dtype=np.int32)
+    count = np.zeros((Ti, Tj), dtype=np.int32)
+
+    for t in range(A.shape[0]):
+        ai = A[t, idx_i][:, None]
+        aj = A[t, idx_j][None, :]
+        v = valid[t, idx_i][:, None] & valid[t, idx_j][None, :]
+
+        same = (ai == aj)
+        match += same & v
+        count += v
+
+    results = {}
+    for ii, i in enumerate(idx_i):
+        for jj, j in enumerate(idx_j):
+            if i >= j:
+                continue
+            if match[ii, jj] == 0:
+                continue
+
+            c1 = match[ii, jj] / lens_i[ii] * 100
+            c2 = match[ii, jj] / lens_j[jj] * 100
+            results[(i, j)] = round(max(c1, c2), 4)
+
+    return results
+
+def build_action_matrix(id_to_trade_df):
+    dfs = []
+    for sid, df in id_to_trade_df.items():
+        tmp = df[['executionT', 'action']].copy()
+        tmp['action'] = np.where(tmp['action'] > 1, 1,
+                        np.where(tmp['action'] < 1, -1, 0))
+        tmp = tmp.set_index('executionT')
+        tmp.rename(columns={'action': str(sid)}, inplace=True)
+        dfs.append(tmp)
+
+    # Align theo executionT
+    action_df = pd.concat(dfs, axis=1).sort_index()
+    return action_df
+
+def calculate_all_correlations_block_mp(action_df, block_size=500, n_core=20):
+    ids = action_df.columns.to_list()
+    A_raw = action_df.values
+
+    valid = ~np.isnan(A_raw)
+    A = np.nan_to_num(A_raw).astype(np.int8)
+
+    N = A.shape[1]
+    lens = valid.sum(axis=0)
+
+    blocks = [
+        np.arange(i, min(i + block_size, N))
+        for i in range(0, N, block_size)
+    ]
+
+    jobs = []
+    for bi, idx_i in enumerate(blocks):
+        for bj, idx_j in enumerate(blocks):
+            if bj < bi:
+                continue
+            jobs.append((
+                A,
+                valid,
+                idx_i,
+                idx_j,
+                lens[idx_i],
+                lens[idx_j],
+            ))
+
+    print(f"🚀 Running {len(jobs)} block-pairs on {n_core} cores")
+
+    results = {}
+    with mp.Pool(processes=n_core) as pool:
+        for res in pool.imap_unordered(calc_block_pair, jobs):
+            results.update(res)
+
+    return ids, results
+
+def calculate_combined_correlations(
+    alpha_id,
+    stras=None,
+    logger=None,
+    max_workers=20,
+    block_size=500,
+    type="ios",
+    start=None,
+    end=None
+):
+    """
+    Final clean version:
+    - Block-based correlation engine
+    - No existing_pairs
+    - MongoDB auto-skip duplicates
+    - Minimal insert schema: {x, y, c}
+    """
+
+    start_time = time.time()
+
+    # === 0️⃣ MongoDB ===
+    db = MongoClient(get_mongo_uri("mgc3"))["alpha"]
+    alpha_collection = db["alpha_collection"]
+    local_db = MongoClient(get_mongo_uri())["alpha"]
+    correlation_coll = local_db["correlation_results"]
+
+    # === 1️⃣ Parse trades ===
+    logger.info("⏳ Parsing trades...")
+    id_to_trade_df = {}
+
+    for doc in stras:
+        trades = doc.get("df_trade")
+        if not isinstance(trades, list) or not trades:
+            continue
+
+        df = pd.DataFrame(trades)
+        if "executionT" not in df or "action" not in df:
+            continue
+
+        df["executionT"] = pd.to_datetime(df["executionT"], errors="coerce")
+        df.dropna(subset=["executionT"], inplace=True)
+
+        if not df.empty:
+            id_to_trade_df[doc["_id"]] = df
+
+    if len(id_to_trade_df) < 2:
+        logger.info("⚠️ Not enough strategies to compute correlations.")
+        return
+
+    # === 2️⃣ Update status: running ===
+    total_combinations = len(id_to_trade_df) * (len(id_to_trade_df) - 1) // 2
+
+    if type == "wfa":
+        alpha_collection.update_one(
+            {"_id": ObjectId(alpha_id), "wfa.is.start": start, "wfa.is.end": end},
+            {"$set": {
+                "wfa.$.correlation.status": "running",
+                "wfa.$.correlation.process": 0,
+                "wfa.$.correlation.total": total_combinations
+            }}
+        )
+    else:
+        alpha_collection.update_one(
+            {"_id": ObjectId(alpha_id)},
+            {"$set": {
+                f"{type}.correlation.status": "running",
+                f"{type}.correlation.process": 0,
+                f"{type}.correlation.total": total_combinations
+            }}
+        )
+
+    # === 3️⃣ Build action matrix ===
+    logger.info("🧮 Building action matrix...")
+    action_df = build_action_matrix(id_to_trade_df)
+
+    # === 4️⃣ Compute correlations (BLOCK ENGINE) ===
+    logger.info("⚡ Computing correlations (block-based)...")
+    ids, corr_dict = calculate_all_correlations_block_mp(
+        action_df,
+        block_size=block_size,
+        n_core=max_workers
+    )
+
+    logger.info(f"🧠 Computed {len(corr_dict):,} correlation pairs")
+
+    # === 5️⃣ Prepare Mongo documents (MINIMAL) ===
+    docs = []
+    for (i, j), c in corr_dict.items():
+        x = str(ids[i])
+        y = str(ids[j])
+        if x > y:
+            x, y = y, x
+
+        docs.append({
+            "x": x,
+            "y": y,
+            "c": round(c, 4)
+        })
+
+    # === 6️⃣ Insert Mongo (skip duplicates) ===
+    logger.info(f"📦 Inserting {len(docs):,} correlations...")
+    inserted = 0
+    last_update = time.time()
+
+    from pymongo.errors import BulkWriteError
+
+    def chunked(iterable, size):
+        for i in range(0, len(iterable), size):
+            yield iterable[i:i + size]
+
+    for batch in chunked(docs, 10000):
+        try:
+            correlation_coll.insert_many(batch, ordered=False)
+            inserted += len(batch)
+        except BulkWriteError as e:
+            inserted += e.details.get("nInserted", 0)
+
+        if time.time() - last_update >= 10:
+            if type == "wfa":
+                alpha_collection.update_one(
+                    {"_id": ObjectId(alpha_id), "wfa.is.start": start, "wfa.is.end": end},
+                    {"$set": {"wfa.$.correlation.process": inserted}}
+                )
+            else:
+                alpha_collection.update_one(
+                    {"_id": ObjectId(alpha_id)},
+                    {"$set": {f"{type}.correlation.process": inserted}}
+                )
+
+            logger.info(f"⏳ Progress: {inserted}/{len(docs)}")
+            last_update = time.time()
+
+    # === 7️⃣ Done ===
+    if type == "wfa":
+        alpha_collection.update_one(
+            {"_id": ObjectId(alpha_id), "wfa.is.start": start, "wfa.is.end": end},
+            {"$set": {"wfa.$.correlation.status": "done"}}
+        )
+    else:
+        alpha_collection.update_one(
+            {"_id": ObjectId(alpha_id)},
+            {"$set": {f"{type}.correlation.status": "done"}}
+        )
+
+    logger.info(
+        f"✅ Done correlations | inserted={inserted:,} | "
+        f"time={time.time() - start_time:.2f}s"
+    )
 
 def correlation(id, start, end):
     start_time = time.time()
