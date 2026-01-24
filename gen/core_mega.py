@@ -217,7 +217,10 @@ class Simulator:
             df_alpha = self.sizing_positon(df_alpha)
         else:
             # df_alpha['position'] = ((df_pos_sum['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
-            df_alpha["position"] = df_alpha["executionT"].map(df_pos_sum["position"])
+            if self.source == "volume_bar" or self.source == "dollar_bar":
+                df_alpha["position"] = df_pos_sum["position"].reindex(df_alpha.index).ffill().fillna(0)
+            else:
+                df_alpha["position"] = df_alpha["executionT"].map(df_pos_sum["position"])
             df_alpha["position"] = ((df_alpha['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
 
         df_alpha = df_alpha[(df_alpha['day'] >= start) & (df_alpha['day'] <= end)]
