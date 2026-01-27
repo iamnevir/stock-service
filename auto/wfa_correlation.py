@@ -149,7 +149,40 @@ def calculate_combined_correlations(
 
     # === 2️⃣ Update status: running ===
     total_combinations = len(id_to_trade_df) * (len(id_to_trade_df) - 1) // 2
+    projection = {"_id": 0, "x": 1, "y": 1}
+    existing_pairs = set()
 
+    list_ids = [str(i) for i in id_to_trade_df.keys()]
+    total_combinations = len(list_ids) * (len(list_ids) - 1) // 2
+
+    logger.info("🔍 Loading existing correlation pairs from DB...")
+    def chunkify(seq, size=1000):
+        for i in range(0, len(seq), size):
+            yield seq[i:i+size]
+    for x_chunk in chunkify(list_ids, size=1200):
+        cursor = (correlation_coll
+                .find({"x": {"$in": x_chunk}, "y": {"$in": list_ids}}, projection)
+                .hint([("x",1),("y",1)])
+                .batch_size(10_000))
+
+        for d in cursor:
+            existing_pairs.add((d["x"], d["y"]))
+
+    logger.info(f"📌 Existing pairs: {len(existing_pairs)}/{total_combinations}")
+    if len(existing_pairs) >= total_combinations:
+        logger.info("✅ Correlations already complete. Skip computing.")
+
+        if type == "wfa":
+            alpha_collection.update_one(
+                {"_id": ObjectId(alpha_id), "wfa.is.start": start, "wfa.is.end": end},
+                {"$set": {"wfa.$.correlation.status": "done"}}
+            )
+        else:
+            alpha_collection.update_one(
+                {"_id": ObjectId(alpha_id)},
+                {"$set": {f"{type}.correlation.status": "done"}}
+            )
+        return
     if type == "wfa":
         alpha_collection.update_one(
             {"_id": ObjectId(alpha_id), "wfa.is.start": start, "wfa.is.end": end},
@@ -196,9 +229,16 @@ def calculate_combined_correlations(
             "y": y,
             "c": round(c, 4)
         })
+    logger.info("🧹 Filtering existing pairs before insert...")
 
+    new_docs = []
+    for d in docs:
+        if (d["x"], d["y"]) not in existing_pairs:
+            new_docs.append(d)
+
+    logger.info(f"📦 New pairs to insert: {len(new_docs)}")
     # === 6️⃣ Insert Mongo (skip duplicates) ===
-    logger.info(f"📦 Inserting {len(docs):,} correlations...")
+    logger.info(f"📦 Inserting {len(new_docs):,} correlations...")
     inserted = 0
     last_update = time.time()
 
@@ -208,7 +248,7 @@ def calculate_combined_correlations(
         for i in range(0, len(iterable), size):
             yield iterable[i:i + size]
 
-    for batch in chunked(docs, 10000):
+    for batch in chunked(new_docs, 10000):
         try:
             correlation_coll.insert_many(batch, ordered=False)
             inserted += len(batch)
@@ -227,7 +267,7 @@ def calculate_combined_correlations(
                     {"$set": {f"{type}.correlation.process": inserted}}
                 )
 
-            logger.info(f"⏳ Progress: {inserted}/{len(docs)}")
+            logger.info(f"⏳ Progress: {inserted}/{len(new_docs)}")
             last_update = time.time()
 
     # === 7️⃣ Done ===
