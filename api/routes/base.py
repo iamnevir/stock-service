@@ -84,7 +84,7 @@ def run_all_base_wfa():
         start_new_session=True
     )
     print(f"Started run_all_wfa with PID {p.pid} for id {base_id}")
-    sleep(1)  # give some time for the process to start
+    sleep(3)  # give some time for the process to start
     return jsonify({"message": f"Running all WFA for id {base_id}","result": True}), 200
 
 @base_bp.route('/kill_base_process', methods=['POST'])

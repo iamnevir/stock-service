@@ -88,7 +88,7 @@ def run_all_alpha_wfa():
         start_new_session=True
     )
     print(f"Started run_all_wfa with PID {p.pid} for id {alpha_id}")
-    sleep(1)  # give some time for the process to start
+    sleep(3)  # give some time for the process to start
     return jsonify({"message": f"Running all WFA for id {alpha_id}","result": True}), 200
 
 @stock_bp.route('/get_process_running', methods=['POST'])
@@ -323,6 +323,7 @@ def run_all_wfa():
         stderr=subprocess.DEVNULL,
         start_new_session=True
     )
+    sleep(3)
     print(f"Started run_all_wfa with PID {p.pid} for id {busd_id}")
     return jsonify({"message": f"Running all WFA for id {busd_id}","result": True}), 200
 
