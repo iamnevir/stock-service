@@ -158,6 +158,7 @@ class Base_Domains:
         - Khi |tổng điểm| <= exit_score -> đóng vị thế
         """
         Base_Domains.adjust_positions(df_base)
+        df_base['signal'] = df_base['signal'].round(6)
         signed_signal = np.sign(df_base['position'].fillna(0))
         rolling_score = signed_signal.rolling(score_window, min_periods=1).sum()
 

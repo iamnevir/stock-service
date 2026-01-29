@@ -219,6 +219,7 @@ class Alpha_Domains:
         - Khi |tổng điểm| <= exit_score -> đóng vị thế
         """
         Alpha_Domains.adjust_positions(df_alpha, overnight)
+        df_alpha['signal'] = df_alpha['signal'].round(6)
         signed_signal = np.sign(df_alpha['position'].fillna(0))
         rolling_score = signed_signal.rolling(score_window, min_periods=1).sum()
 
