@@ -1,0 +1,439 @@
+from datetime import datetime
+from math import erf, sqrt
+import sys
+from time import time
+from itertools import combinations
+from functools import partial
+from multiprocessing import Pool
+from scipy.stats import skew, kurtosis
+import numpy as np
+import pandas as pd
+
+from pymongo import MongoClient, InsertOne
+from bson import ObjectId
+
+from base_auto.utils import get_mongo_uri, load_dic_freqs, sanitize_for_bson
+from gen_spot.base_func_lib import Domains
+from gen_spot.core_mega import Simulator
+from typing import Union, List, Tuple
+
+
+def calculate_working_days(
+    cv: Union[
+        str,
+        List[List[str]],
+        Tuple[str, ...],
+        List[str]
+    ],
+    workdays_per_year: int = 250
+) -> int:
+    """
+    Tính số ngày làm việc từ CV periods.
+
+    Supported formats:
+    - "YYYY_MM_DD-YYYY_MM_DD"
+    - ["YYYY_MM_DD-YYYY_MM_DD", ...]
+    - [["YYYY_MM_DD", "YYYY_MM_DD"], ...]   ← WFA CPCV
+    """
+
+    def parse_period(start: str, end: str) -> int:
+        s = datetime.strptime(start, "%Y_%m_%d")
+        e = datetime.strptime(end, "%Y_%m_%d")
+        return (e - s).days
+
+    total_days = 0
+
+    # --- CASE 1: single string ---
+    if isinstance(cv, str):
+        if "-" not in cv:
+            raise ValueError(f"Invalid cv string: {cv}")
+        start, end = cv.split("-")
+        total_days = parse_period(start, end)
+
+    # --- CASE 2: list / tuple ---
+    elif isinstance(cv, (list, tuple)):
+        for p in cv:
+
+            # ["start", "end"]
+            if isinstance(p, (list, tuple)) and len(p) == 2:
+                total_days += parse_period(p[0], p[1])
+
+            # "start-end"
+            elif isinstance(p, str) and "-" in p:
+                start, end = p.split("-")
+                total_days += parse_period(start, end)
+
+            else:
+                raise ValueError(f"Invalid CV period format: {p}")
+
+    else:
+        raise ValueError(f"Unsupported cv type: {type(cv)}")
+
+    working_days = total_days * workdays_per_year / 365.0
+    return int(round(working_days))
+
+def dsr(returns,sharpe, sr_benchmark=0.18):
+        try:
+            def volatility_sharpe(returns):
+                sample_size = len(returns)
+                skewness = skew(returns)
+                _kurtosis = kurtosis(returns, fisher=True, bias=False)
+                return np.sqrt((1 - skewness*sharpe + (_kurtosis + 2)/4*sharpe**2) / (sample_size - 1)), sharpe
+            
+            sigma_sr, sr = volatility_sharpe(returns)
+            z = (sr - sr_benchmark) / sigma_sr
+            return 0.5 * (1 + erf(z / sqrt(2))) * 100
+        except Exception as e:
+            return 0
+        
+def compute_mdd_vectorized(df_1d, equity=300):
+    """
+    Tính Maximum Drawdown (MDD) có xét đến equity ban đầu.
+    - MDD% được tính từ CDD% = (cummax - cumNetProfit) / (equity + cummax)
+    """
+
+    if 'cumNetProfit' in df_1d:
+        net_profit = df_1d['cumNetProfit']
+    else:
+        net_profit = df_1d['netProfit'].cumsum()
+
+    cummax = net_profit.cummax()
+    cdd = cummax - net_profit
+    cdd_pct = (cdd / (equity + cummax) * 100)
+
+    mdd = cdd.cummax().iloc[-1]
+    mdd_pct = cdd_pct.cummax()
+    cdd_last = cdd.iloc[-1]
+
+    return mdd, mdd_pct, cdd_last, cdd_pct
+    
+def compute_performance_with_df1d(cv,equity =300,df_1d=None):
+    lst_errs = []
+    
+    working_day = calculate_working_days(cv)
+    try:
+        mean = df_1d["netProfit"].mean()
+        std = df_1d["netProfit"].std()
+        if std and not np.isnan(std):
+            sharpe = mean / std * working_day ** 0.5
+            # print(working_day, mean, std, sharpe, equity)
+            daily_sharpe = mean / std
+        else:
+            sharpe = np.nan
+            daily_sharpe = np.nan
+    except Exception as e:
+        lst_errs.append(f"{e}")
+        # U.report_error(e)
+        sharpe = -999
+    tvr = df_1d['turnover'].mean()
+    ppc = df_1d['netProfit'].sum() / (df_1d['turnover'].sum() + 1e-8)
+
+    mdd, mdd_pct, cdd, cdd_pct = compute_mdd_vectorized(df_1d,equity)
+    
+    returns = df_1d['netProfit'] / equity
+    winning_profits = df_1d[df_1d['netProfit'] > 0]['netProfit']
+    loss_profits = df_1d[df_1d['netProfit'] < 0]['netProfit']
+    net_profit_pos = winning_profits.sum()
+    net_profit_neg = loss_profits.sum()
+    npf = net_profit_pos / abs(net_profit_neg) if net_profit_neg != 0 else net_profit_pos
+    total_profit = winning_profits.sum()
+    shares = winning_profits / total_profit
+    hhi = (shares ** 2).sum()
+    new_report = {
+        'sharpe': round(sharpe, 2),
+        'mdd': round(mdd, 2),
+        'mddPct': round(mdd_pct.iloc[-1], 2),
+        "hhi": round(hhi,2),
+        "psr": round(dsr(returns, daily_sharpe,0),2),
+        'ppc': round(ppc, 2),
+        'tvr': round(tvr, 2),
+        "npf":float(round(npf, 2)),
+        "netProfit": round(df_1d['netProfit'].sum(), 2),
+        "profitPct": round(df_1d['netProfit'].sum(), 2) / equity * 100,
+        "max_loss": round(df_1d['netProfit'].min(), 2),
+        "max_gross": round(df_1d['netProfit'].max(), 2),
+    }
+    return new_report
+def split_os_to_chunks(os_item):
+    # ---- parse input (string -> Timestamp) ----
+    start_dt = (
+        pd.to_datetime(os_item["start"], format="%Y_%m_%d")
+        if isinstance(os_item["start"], str)
+        else os_item["start"]
+    )
+
+    end_dt = (
+        pd.to_datetime(os_item["end"], format="%Y_%m_%d")
+        if isinstance(os_item["end"], str)
+        else os_item["end"]
+    )
+
+    df = os_item["df"]
+
+    # ---- ensure DatetimeIndex for slicing ----
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df = df.copy()
+        df.index = pd.to_datetime(df.index, format="%Y_%m_%d")
+
+    # ---- IMPORTANT: sort index ----
+    df = df.sort_index()
+
+    cut_points = [
+        start_dt + pd.DateOffset(months=1),
+        start_dt + pd.DateOffset(months=2),
+        end_dt
+    ]
+
+    chunks = []
+    prev = start_dt
+    chunk_id = 1
+
+    for cut in cut_points:
+        is_last = (cut == end_dt)
+
+        mask = (
+            (df.index >= prev) &
+            ((df.index <= cut) if is_last else (df.index < cut))
+        )
+
+        df_chunk = df.loc[mask].copy()
+
+        if len(df_chunk) == 0:
+            prev = cut
+            continue
+
+        chunks.append({
+            "df": df_chunk,
+            "equity": os_item["equity"],
+            "start": prev.strftime("%Y_%m_%d"),
+            "end": cut.strftime("%Y_%m_%d"),
+            "chunk_id": chunk_id
+        })
+
+        chunk_id += 1
+        prev = cut
+
+    return chunks
+
+
+def precompute_wfa_os(
+    base_name,
+    gen,
+    dic_freqs,
+    DIC_BASES,
+    df_tick,
+    wfa_list
+):
+    PRE = {}
+
+    for i, fa in enumerate(wfa_list):
+        os_cfg = fa["os"]
+        fee = fa.get("fee", 0.175)
+        strategies = (
+            fa.get("correlation", {})
+              .get("results", {})
+              .get("strategies", [])
+        )
+
+        if not strategies:
+            continue
+
+        bt = Simulator(
+            base_name=base_name,
+            configs=strategies,
+            dic_freqs=dic_freqs,
+            DIC_BASES=DIC_BASES,
+            df_tick=df_tick,
+            start=os_cfg["start"],
+            end=os_cfg["end"],
+            fee=fee,
+            stop_loss=fa["stop_loss"],
+            gen=gen,
+            booksize=fa["book_size"],
+            is_sizing=fa["is_sizing"],
+            init_sizing=fa["init_sizing"]
+        )
+
+        bt.compute_mega()
+
+        df = bt.df_1d.copy()
+
+        key = f"os_{i}"
+        PRE[key] = {
+            "df": df,
+            "equity": 300 * fa["book_size"],
+            "start": os_cfg["start"],
+            "end": os_cfg["end"]
+        }
+
+        print(f"✅ OS {key}: {os_cfg['start']} → {os_cfg['end']} | rows={len(df)}")
+
+    return PRE
+
+def get_df_1d_from_cv(cv_keys, PRE):
+    dfs = []
+    cv_dates = []
+    equity = 0
+    for k in cv_keys:
+        item = PRE[k]
+        dfs.append(item["df"])
+        equity = item["equity"]
+        cv_dates.append([item["start"], item["end"]])
+
+    df = pd.concat(dfs)
+    df["cumNetProfit"] = df["netProfit"].cumsum()
+
+    return df, equity, cv_dates
+
+
+def run_cpcv_sequential(cv_list, PRE, base_id):
+    reports = []
+
+    for i, cv_keys in enumerate(cv_list, 1):
+        df, equity, cv_dates = get_df_1d_from_cv(cv_keys, PRE)
+
+        report = compute_performance_with_df1d(
+            cv=cv_dates,        # ✅ list[list[start, end]]
+            equity=equity,
+            df_1d=df
+        )
+
+        reports.append({
+            "cv": cv_dates,     # ✅ lưu dạng date
+            "base_id": base_id,
+            **sanitize_for_bson(report)
+        })
+
+        if i % 100 == 0:
+            print(f"  ▶ processed {i}/{len(cv_list)} CV")
+
+    return reports
+
+def cpcv(base_id):
+    mongo_client = MongoClient(get_mongo_uri("mgc3"))
+    base_db = mongo_client["base"]
+    base_collection = base_db["base_collection"]
+    cpcv_collection = base_db["base_cpcv"]
+
+    doc = base_collection.find_one({"_id": ObjectId(base_id)})
+    if not doc:
+        print("❌ base not found")
+        return
+    base_collection.update_one(
+        {"_id": ObjectId(base_id)},
+        {"$set": {
+            "cpcv.status": "running",
+        }}
+    )
+    base_name = doc["base_name"]
+    gen = doc.get("gen", "1_2")
+
+    wfa_list = doc.get("wfa", [])
+    if not wfa_list:
+        print("❌ No WFA data")
+        return
+        
+    gen_path = 3
+
+    print(f"🔍 CPCV-WFA (SEQUENTIAL)")
+    print(f"   base={base_name} | gen_path={gen_path}")
+
+    source = doc.get("source", "hose500")
+    dic_freqs = load_dic_freqs(source=source)
+    DIC_BASES = Domains.get_list_of_bases()
+    df_tick = pd.read_pickle("/home/ubuntu/nevir/data/busd.pkl")
+
+    start_time = time()
+
+    # --- PRECOMPUTE OS ---
+    PRE_RAW = precompute_wfa_os(
+        base_name=base_name,
+        gen=gen,
+        dic_freqs=dic_freqs,
+        DIC_BASES=DIC_BASES,
+        df_tick=df_tick,
+        wfa_list=wfa_list
+    )
+
+    PRE = {}
+    for os_key, os_item in PRE_RAW.items():
+        chunks = split_os_to_chunks(os_item)
+        for j, chunk in enumerate(chunks, 1):
+            PRE[f"{os_key}_p{j}"] = chunk
+
+    os_keys = list(PRE.keys())
+    print(f"🧩 total chunks = {len(os_keys)}")
+    cv_list = list(combinations(os_keys, gen_path))
+
+    print(f"🧩 OS count={len(os_keys)} | CPCV paths={len(cv_list)}")
+
+    # --- RUN CPCV (NO POOL) ---
+    reports = run_cpcv_sequential(cv_list, PRE, base_id)
+
+    print(f"⏱️ CPCV finished in {time() - start_time:.2f}s")
+
+    # --- SAVE MONGO ---
+    cpcv_collection.delete_many({"base_id": base_id})
+    cpcv_collection.create_index("base_id")
+    ops = []
+    for r in reports:
+        ops.append(InsertOne(r))
+        if len(ops) == 500:
+            cpcv_collection.bulk_write(ops, ordered=False)
+            ops.clear()
+    if ops:
+        cpcv_collection.bulk_write(ops, ordered=False)
+
+    # --- STATISTICS ---
+    profit = np.sort( [r["profitPct"] for r in reports])
+    mdd =  np.sort([r["mddPct"] for r in reports])
+    sharpe = [r["sharpe"] for r in reports]
+    statistics = {
+        "profitPct": {
+            "mean": round(np.mean(profit), 2),
+            "max": round(np.max(profit), 2),
+            "min": round(np.min(profit), 2),
+            "75pct": round(np.percentile(profit, 25), 2),
+            "95pct": round(np.percentile(profit, 5), 2),
+            "99pct": round(np.percentile(profit, 1), 2),
+        },
+        "mddPct": {
+            "mean": round(np.mean(mdd), 2),
+            "max": round(np.max(mdd), 2),
+            "min": round(np.min(mdd), 2),
+            "75pct": round(np.percentile(mdd, 75), 2),
+            "95pct": round(np.percentile(mdd, 95), 2),
+            "99pct": round(np.percentile(mdd, 99), 2),
+        },
+        "sharpe": {
+            "mean": round(np.mean(sharpe), 2),
+        }
+    }
+
+    base_collection.update_one(
+        {"_id": ObjectId(base_id)},
+        {"$set": {
+            "cpcv.path_count": len(cv_list),
+            "cpcv.statistics": statistics,
+        }}
+    )
+    base_collection.update_one(
+        {"_id": ObjectId(base_id)},
+        {"$set": {
+            "cpcv.status": "done",
+        }}
+    )
+    print("✅ CPCV-WFA (sequential) saved")
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: /home/ubuntu/anaconda3/bin/python /home/ubuntu/nevir/base_auto/wfa_cpcv.py <_id>")
+        sys.exit(1)
+
+    _id = sys.argv[1]
+
+    cpcv(_id)
+
+if __name__ == "__main__":
+    main()
