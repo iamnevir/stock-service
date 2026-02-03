@@ -25,6 +25,7 @@ def view_wfa_correlation(id, start, end):
     wfa = alpha_doc.get("wfa", [])
     source = alpha_doc.get("source", None)
     overnight = alpha_doc.get("overnight", False)
+    cut_time = alpha_doc.get("cut_time", None)
     fa = None
     for item in wfa:
         is_data = item.get("is", {})
@@ -50,7 +51,8 @@ def view_wfa_correlation(id, start, end):
                 alpha_name=alpha_name,
                 gen=gen,
                 source=source,
-                overnight=overnight
+                overnight=overnight,
+                cut_time=cut_time
             ) for config in need_configs]
     total_config = len(list_ids)
     print(f"Total strategies to consider: {total_config}")

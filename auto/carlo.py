@@ -1,18 +1,20 @@
-import pickle
+
+import sys
+from time import time
 import numpy as np
 import pandas as pd
+
 from pymongo import MongoClient
-
 from bson import ObjectId
-from auto.utils import get_mongo_uri, load_dic_freqs, setup_logger
-from gen.alpha_func_lib import Domains
-from gen.core import Simulator
-from gen.core_mega import Simulator as SimulatorMega
 
-def generate_combinations(profits, sample=10000):
+from auto.utils import get_mongo_uri, load_dic_freqs, sanitize_for_bson
+from gen.alpha_func_lib import Domains
+from gen.core_mega import Simulator
+
+def generate_combinations(profits, sample=10000, day=125):
     indices = np.random.choice(
         len(profits),
-        size=(sample, len(profits)),
+        size=(sample, day),
         replace=True,
     )
     return profits[indices]
@@ -49,18 +51,7 @@ def calculate_equity(combinations, cap):
         equity[:, j] = equity[:, j - 1] + combinations[:, j]
 
     return equity
-# def calculate_equity(combinations, cap):
-#     profit_percent = combinations
-#     num_combinations, num_steps = profit_percent.shape
 
-#     equity = np.zeros((num_combinations, num_steps))
-
-#     equity[:, 0] = cap * (1 + profit_percent[:, 0])
-
-#     for j in range(1, num_steps):
-#         equity[:, j] = equity[:, j - 1]  + profit_percent[:, j]*300
-
-#     return equity
 
 def calculate_drawdown_and_mdd(equity):
     peak_equity = np.maximum.accumulate(equity, axis=1)
@@ -117,10 +108,59 @@ def calculate_ruin_median(equity, cap):
     
     return ruin_median, percentiles_mgr,mgr_range
 
-def calculate_metrics(data,cap=300, sample=10000):
-    
+def precompute_wfa_os(
+    alpha_name,
+    gen,
+    dic_freqs,
+    DIC_ALPHAS,
+    df_tick,
+    wfa_list,
+    source,
+    net_profit_list
+):
+    for i, fa in enumerate(wfa_list):
+        os_cfg = fa["os"]
+        fee = fa.get("fee", 0.175)
+        strategies = (
+            fa.get("correlation", {})
+              .get("results", {})
+              .get("strategies", [])
+        )
+
+        if not strategies:
+            continue
+
+        bt = Simulator(
+            alpha_name=alpha_name,
+            configs=strategies,
+            dic_freqs=dic_freqs,
+            DIC_ALPHAS=DIC_ALPHAS,
+            df_tick=df_tick,
+            start=os_cfg["start"],
+            end=os_cfg["end"],
+            fee=fee,
+            stop_loss=fa["stop_loss"],
+            gen=gen,
+            booksize=fa["book_size"],
+            is_sizing=fa["is_sizing"],
+            init_sizing=fa["init_sizing"],
+            source=source
+        )
+
+        bt.compute_mega()
+
+        df = bt.df_1d.to_dict(orient="records")
+        net_profit_list.extend([item["netProfit"] for item in df])
+        # break
+
+
+def calculate_metrics(data,cap=300, day=125, sample=10000):
     profits = np.array(data)
-    combinations = generate_combinations(profits)
+    # profit_percent = profits / 300 
+    # risk_init = 0.001
+    
+    # np.savetxt("/home/ubuntu/nevir/fenix/Backtest/src/api/blueprints/stock/profits.csv", profits, delimiter=",", fmt="%.2f")
+    combinations = generate_combinations(profits=profits,day=day)
     
     equity = calculate_equity(combinations, cap)
 
@@ -147,148 +187,102 @@ def calculate_metrics(data,cap=300, sample=10000):
     
     final =  {
         **{
-            f"{threshold}_MDD": float(mdd_percentage)
+            f"{threshold}_MDD": round(float(mdd_percentage), 2)
             for threshold, mdd_percentage in zip(mdd_ranges, mdd_percentages)
         },
         **{
-            f"{threshold}_Ruin": float(ruin_percentage)
+            f"{threshold}_Ruin": round(float(ruin_percentage), 2)
             for threshold, ruin_percentage in zip(ruin_ranges, ruin_percentages)
         },
         **{
-            f"{threshold}MG": float(percentile)
+            f"{threshold}MG": round(float(percentile), 2)
             for threshold, percentile in zip(range_gain, percentiles)
         },
         **{
-            f"{threshold}MGR": float(percentile)* -1
+            f"{threshold}MGR": round(float(percentile)* -1, 2)
             for threshold, percentile in zip(mgr_range, percentiles_mgr)
         },
         **{
-            f"{threshold}MGD": float(percentile)* -1
+            f"{threshold}MGD": round(float(percentile)* -1, 2)
             for threshold, percentile in zip(mgd_range, percentiles_mgd)
         },
-        "MG": np.median(gains),
-        "MGR":mgr*-1,
-        "MGD":np.median(mdd)*-1
+        "MG": round(np.median(gains), 2),
+        "MGR": round(mgr*-1, 2),
+        "MGD": round(np.median(mdd)*-1, 2)
     }
-    if len(data) // 52 > 0:
-        
-        combinations_m = generate_combinations_month(
-             profits
-        )
-        combinations_w = generate_combinations_week(
-             profits
-        )
-        equity_m = calculate_equity(combinations_m, cap)
-        equity_w = calculate_equity(combinations_w, cap)
-        gains_m = (equity_m[:, -1] / cap - 1) * 100
-        gains_w = (equity_w[:, -1] / cap - 1) * 100
-        percentile_range_mw = [1]
-        percentiles_m = np.percentile(gains_m, percentile_range_mw)
-        percentiles_w = np.percentile(gains_w, percentile_range_mw)
-        range_gain = [100 - i for i in percentile_range_mw]
-        final.update(
-            {
-                "MGW": np.median(gains_w, axis=0),
-                **{
-                    f"{threshold}WGain": float(percentile)
-                    for threshold, percentile in zip(range_gain, percentiles_w)
-                },
-                "MGM": np.median(gains_m, axis=0),
-                **{
-                    f"{threshold}MGain": float(percentile)
-                    for threshold, percentile in zip(range_gain, percentiles_m)
-                },
-            }
-        )
+    return sanitize_for_bson(final)
 
-    return final
-
-
-def carlo_alpha(alpha_name,gen,fee,configs,dic_freqs,DIC_ALPHAS,df_tick,start,end,stop_loss,book_size,is_sizing,init_sizing):
-    DIC_ALPHAS = Domains.get_list_of_alphas()
-    bt = SimulatorMega(
-        alpha_name=alpha_name,
-        configs=configs,
-        dic_freqs=dic_freqs,
-        DIC_ALPHAS=DIC_ALPHAS,
-        df_tick=df_tick,
-        start=start,
-        end=end,
-        fee=fee,
-        stop_loss=stop_loss,
-        gen=gen,
-        booksize=book_size,
-        is_sizing=is_sizing,
-        init_sizing=init_sizing
-        
-    )
-    bt.compute_mega()
-    bt.compute_performance() 
-    profits=bt.extract_net_profits()
-    report = calculate_metrics(profits,cap=book_size*300,sample=10000)
-    return report
-
-def carlos_alpha(id, one_carlo):
-    mongo_client = MongoClient(get_mongo_uri())
+def carlo(alpha_id):
+    mongo_client = MongoClient(get_mongo_uri("mgc3"))
     alpha_db = mongo_client["alpha"]
     alpha_collection = alpha_db["alpha_collection"]
 
-    alpha_doc = alpha_collection.find_one({"_id": ObjectId(id)})
-    if not alpha_doc:
-        print("❌ Không tìm thấy alpha_collection với id này.")
+    doc = alpha_collection.find_one({"_id": ObjectId(alpha_id)})
+    if not doc:
+        print("❌ Alpha not found")
         return
-    alpha_name = alpha_doc.get("alpha_name", "")
-    gen = alpha_doc.get("gen", "1_2")
-    wfo = alpha_doc.get("wfo", {})
-    periods = wfo.get("period", [])
-    fee = wfo.get("fee", 0.175)
-    correlation = wfo.get("correlation", {})
-    DIC_ALPHAS = Domains.get_list_of_alphas()
-    dic_freqs = load_dic_freqs()
-    df_tick = pd.read_pickle("/home/ubuntu/nevir/data/busd.pkl")
-    reports = []
-    if one_carlo is not None:
-        periods = [item for item in periods if item.get("os","") == one_carlo]
-    for period in periods:
-        _is = period.get("is", "")
-        _os = period.get("os", "")
-        start = _os.split("-")[0]
-        end = _os.split("-")[1]
-        stop_loss = period.get(f"stop_loss", 0)
-        book_size = period.get(f"book_size", 1)
-        is_sizing = period.get(f"is_sizing",False)
-        init_sizing = period.get(f"init_sizing",30)
-        configs = next(
-            (item.get("strategies", []) for item in correlation.get("results", [])
-            if item.get("is") == _is),
-            []
-        )
-        if not configs and len(configs) == 0:
-            continue
-        report = carlo_alpha(alpha_name,gen,fee,configs,dic_freqs,DIC_ALPHAS,df_tick,start,end,stop_loss,book_size,is_sizing,init_sizing)
-        report['period'] = _os
-        reports.append(report)
-    carlo_list = reports if one_carlo is None else []
-    if one_carlo is not None:
-        carlo_list = alpha_doc.get("carlo", [])
-        new_data = reports[0] if reports else {}
-
-        updated = False
-        for item in carlo_list:
-            period_value = item["period"]
-            if period_value == one_carlo:
-                item.update(new_data)
-                updated = True
-                break
-
-        if not updated:
-            carlo_list.append(new_data)
-            
     alpha_collection.update_one(
-        {"_id": ObjectId(id)},
-        {
-            "$set": {
-                "carlo": carlo_list,
-            }
-        }
+        {"_id": ObjectId(alpha_id)},
+        {"$set": {
+            "carlo.status": "running",
+        }}
     )
+    alpha_name = doc["alpha_name"]
+    gen = doc.get("gen", "1_2")
+    overnight = doc.get("overnight",False)
+    source = doc.get("source",None)
+    wfa_list = doc.get("wfa", [])
+    if not wfa_list:
+        print("❌ No WFA data")
+        return
+
+    print(f"🔍 CARLO-WFA (SEQUENTIAL)")
+    print(f"   alpha={alpha_name}")
+
+    dic_freqs = load_dic_freqs(source, overnight)
+    DIC_ALPHAS = Domains.get_list_of_alphas()
+    df_tick = pd.read_pickle("/home/ubuntu/nevir/data/busd.pkl")
+
+    start_time = time()
+    net_profit_list = []
+    # --- PRECOMPUTE OS ---
+    precompute_wfa_os(
+        alpha_name=alpha_name,
+        gen=gen,
+        dic_freqs=dic_freqs,
+        DIC_ALPHAS=DIC_ALPHAS,
+        df_tick=df_tick,
+        wfa_list=wfa_list,
+        source=source,
+        net_profit_list=net_profit_list
+    )
+    print(f"🧩 Precomputed {len(net_profit_list)} net profit entries")
+    # print(net_profit_list[0])
+    result = calculate_metrics(net_profit_list,cap=50*300,day=125)
+    # print(result)
+    print(f"⏱️  Time taken: {time() - start_time:.2f} seconds")
+    alpha_collection.update_one(
+        {"_id": ObjectId(alpha_id)},
+        {"$set": {
+            "carlo.statistics": result,
+        }}
+    )
+    alpha_collection.update_one(
+        {"_id": ObjectId(alpha_id)},
+        {"$set": {
+            "carlo.status": "done",
+        }}
+    )
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: /home/ubuntu/anaconda3/bin/python /home/ubuntu/nevir/auto/carlo.py <_id>")
+        sys.exit(1)
+
+    _id = sys.argv[1]
+
+    carlo(_id)
+
+if __name__ == "__main__":
+    main()

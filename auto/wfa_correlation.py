@@ -1,6 +1,5 @@
 from datetime import datetime
 import multiprocessing as mp
-from multiprocessing import shared_memory
 import sys
 import  time
 import traceback
@@ -8,12 +7,143 @@ import numpy as np
 import pandas as pd
 from pymongo import MongoClient
 from bson import ObjectId
-from is_correlation import worker_task_batch
-from mega import os_wfa_backtest
 from utils import get_mongo_uri, insert_batch, load_dic_freqs, setup_logger, make_key_alpha
-from view_correl import view_wfa_correlation
-from wfo import gen_strategies
 from gen.alpha_func_lib import Domains
+from gen.core import Simulator
+
+
+from pymongo.errors import BulkWriteError
+
+def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None, start=None, end=None, source=None, overnight=False,cut_time=None):
+    gen_params = {}
+    if gen == "1_1":
+        freq, threshold, halflife, *rest = config.split("_")
+        freq, threshold, halflife = int(freq), float(threshold), float(halflife)
+        factor = float(rest[1]) if len(rest) > 1 else None
+        window = int(rest[0]) if rest else None
+        gen_params = {
+            "threshold": threshold,
+            "halflife": halflife
+        }
+        params = {}
+        if factor is not None:
+            params["factor"] = factor
+        if window is not None:
+            params["window"] = window
+    elif gen == "1_2":
+        if alpha_name == "alpha_075":
+            freq, upper, lower, *rest = config.split("_")
+            freq, upper, lower = int(freq), float(upper), float(lower)
+            params = {}
+            window = int(rest[0]) if rest else None
+            window_corr_vwap = float(rest[1]) if len(rest) >= 2 else None
+            window_corr_volume = float(rest[2]) if len(rest) >= 3 else None
+            if window is not None:
+                params["window"] = window
+            if window_corr_vwap is not None:
+                params["window_corr_vwap"] = window_corr_vwap
+            if window_corr_volume is not None:
+                params["window_corr_volume"] = window_corr_volume
+            gen_params = {
+                "upper": upper,
+                "lower": lower
+            }
+        freq, upper, lower, *rest = config.split("_")
+        freq, upper, lower = int(freq), float(upper), float(lower)
+        params = {}
+        window = int(rest[0]) if rest else None
+        factor = float(rest[1]) if len(rest) >= 2 else None
+        if window is not None:
+            params["window"] = window
+        if factor is not None:
+            params["factor"] = factor
+        gen_params = {
+            "upper": upper,
+            "lower": lower
+        }
+    elif gen == "1_3":
+        freq, score, entry, exit, *rest = config.split("_")
+        freq, score, entry, exit = int(freq), int(score), float(entry), float(exit)
+        params = {}
+        window = int(rest[0]) if rest else None
+        factor = float(rest[1]) if len(rest) >= 2 else None
+        if window is not None:
+            params["window"] = window
+        if factor is not None:
+            params["factor"] = factor
+        gen_params = {
+            "score":score,
+            "entry":entry,
+            "exit":exit
+        }
+    
+    elif gen == "1_4":
+        freq, entry, exit, smooth, *rest = config.split("_")
+        freq, entry, exit, smooth = int(freq), float(entry), float(exit), float(smooth)
+        params = {}
+        window = int(rest[0]) if rest else None
+        factor = float(rest[0]) if rest else None
+        if window is not None:
+            params["window"] = window
+        if factor is not None:
+            params["factor"] = factor
+        gen_params = {
+            "entry":entry,
+            "exit":exit,
+            "smooth":smooth
+        }
+        
+    bt = Simulator(
+        alpha_name=alpha_name,
+        freq=freq,
+        gen_params=gen_params,
+        fee=fee,
+        df_alpha=dic_freqs[freq].copy(),
+        params=params,
+        DIC_ALPHAS=DIC_ALPHAS,
+        df_tick=None,
+        gen=gen,
+        start=start,
+        end=end,
+        source=source,
+        overnight=overnight
+    )
+    bt.compute_signal()
+    bt.compute_position()
+    bt.compute_tvr_and_fee()
+    bt.compute_profits()
+    bt.compute_performance(start=start, end=end)
+    bt.compute_df_trade()
+    df_trade = bt.df_trade.reset_index(drop=True).to_dict(orient="records")
+    rpt = sanitize_for_bson(bt.report.copy())
+    for k, v in params.items():
+        rpt[f"param_{k}"] = round(float(v),4)
+
+    _id = make_key_alpha(config=config,
+                fee=fee,
+                start=start,
+                end=end,
+                alpha_name=alpha_name,
+                gen=gen,
+                source=source,
+                overnight=overnight,
+                cut_time=cut_time)
+
+    keys_to_delete = ["aroe", "cdd", "cddPct","lastProfit","max_loss","max_gross","num_trades"]
+    for key in keys_to_delete:
+        rpt.pop(key, None)
+    return {"report": rpt, "df_trade": df_trade, "_id": _id,"config": config}
+
+def worker_task_batch(args):
+    """
+    Mỗi worker xử lý 1 batch (1000 configs)
+    """
+    batch_configs, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight, cut_time = args
+    results = []
+    for cfg in batch_configs:
+        rpt = run_single_backtest(cfg, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight, cut_time)
+        results.append(rpt)
+    return results
 
 def calc_block_pair(args):
     A, valid, idx_i, idx_j, lens_i, lens_j = args
@@ -242,7 +372,6 @@ def calculate_combined_correlations(
     inserted = 0
     last_update = time.time()
 
-    from pymongo.errors import BulkWriteError
 
     def chunked(iterable, size):
         for i in range(0, len(iterable), size):
@@ -316,6 +445,7 @@ def correlation(id, start, end):
     source = alpha_doc.get("source", None)
     gen = alpha_doc.get("gen")
     overnight = alpha_doc.get("overnight",False)
+    cut_time = alpha_doc.get("cut_time",None)
     fee = fa.get("fee")
     filter_report = fa.get("filter_report")
     DIC_ALPHAS = Domains.get_list_of_alphas()
@@ -330,7 +460,8 @@ def correlation(id, start, end):
                 alpha_name=alpha_name,
                 gen=gen,
                 source=source,
-                overnight=overnight
+                overnight=overnight,
+                cut_time=cut_time
             ) for config in need_configs]
         exist_stra = list(coll.find({"_id": {"$in": list_ids}}))
         logger.info(f"🔎 Found {len(exist_stra)} existing backtest results in DB.")
@@ -355,7 +486,7 @@ def correlation(id, start, end):
             batch_size_configs = total if total < 1000 else 1000
             batches = [run_configs[i:i + batch_size_configs] for i in range(0, total, batch_size_configs)]
             
-            args_list = [(batch, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight) for batch in batches]
+            args_list = [(batch, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight, cut_time) for batch in batches]
             
             logger.info(f"Chạy với {n_workers} processes, tổng {len(batches)} batches mỗi batch {batch_size_configs} configs.")
             temp_batch = []
