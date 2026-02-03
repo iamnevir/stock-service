@@ -1,6 +1,7 @@
 
 
 from time import sleep
+from base_auto.carlo import carlo
 from bson import ObjectId
 from pymongo import MongoClient
 
@@ -82,6 +83,7 @@ def run_all_wfa(base_id: str):
             logger.info("WFA idx=%d done", idx)
         logger.info("Run CPCV backtest", idx)
         cpcv(base_id) 
+        carlo(base_id)
     except Exception:
         logger.exception("run_all_wfa failed")
         raise
