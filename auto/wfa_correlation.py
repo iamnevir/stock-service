@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from pymongo import MongoClient
 from bson import ObjectId
-from utils import get_mongo_uri, insert_batch, load_dic_freqs, setup_logger, make_key_alpha
+from utils import get_mongo_uri, insert_batch, load_dic_freqs, sanitize_for_bson, setup_logger, make_key_alpha
 from gen.alpha_func_lib import Domains
 from gen.core import Simulator
 
@@ -110,6 +110,8 @@ def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None,
     )
     bt.compute_signal()
     bt.compute_position()
+    if cut_time is not None:
+        bt.change_cut_time(dic_freqs[1].copy(),cut_time)
     bt.compute_tvr_and_fee()
     bt.compute_profits()
     bt.compute_performance(start=start, end=end)
