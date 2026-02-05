@@ -352,6 +352,17 @@ class Base:
 
         return signal
     
+    @staticmethod
+    def base_011( df, window, factor):
+        rolling_std = df['based_col'].rolling(window=window).std()
+        risk_adj_flow = df['based_col'] / (rolling_std + 1e-9)
+        
+        signal = 2 * risk_adj_flow.rolling(window=window).rank(pct=True) - 1
+        if factor > 0: 
+            signal = signal.ewm(halflife=factor).mean()
+        df['signal'] = signal
+        return df
+    
 class Domains:
 
     @staticmethod
