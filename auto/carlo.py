@@ -6,7 +6,7 @@ import pandas as pd
 
 from pymongo import MongoClient
 from bson import ObjectId
-
+from multiprocessing import Pool
 from auto.utils import get_mongo_uri, load_dic_freqs, sanitize_for_bson
 from gen.alpha_func_lib import Domains
 from gen.core_mega import Simulator
@@ -22,25 +22,6 @@ def generate_combinations(profits, sample=10000, day=125):
 #     profits = np.array(profits)
 #     return np.array([np.random.permutation(profits) for _ in range(sample)])
 
-
-def generate_combinations_month(profits, sample=10000):
-    month_size = len(profits) // 12
-    indices = np.random.choice(
-        len(profits),
-        size=(sample, month_size),
-        replace=True,
-    )
-    return profits[indices]
-
-def generate_combinations_week(profits, sample=10000):
-    week_size = len(profits) // 52
-    indices = np.random.choice(
-        len(profits),
-        size=(sample, week_size),
-        replace=True,
-    )
-    return profits[indices]
-
 def calculate_equity(combinations, cap):
     num_combinations, num_steps = combinations.shape
 
@@ -52,6 +33,16 @@ def calculate_equity(combinations, cap):
 
     return equity
 
+def calculate_sharpe(mat, day=125):
+    """
+    returns: sharpe matrix shape (sample,)
+    """
+    mean = mat.mean(axis=1)
+    std = mat.std(axis=1, ddof=1)  # dùng sample std cho đúng Sharpe
+
+    sharpe = mean / std * np.sqrt(day)
+
+    return sharpe
 
 def calculate_drawdown_and_mdd(equity):
     peak_equity = np.maximum.accumulate(equity, axis=1)
@@ -116,8 +107,8 @@ def precompute_wfa_os(
     df_tick,
     wfa_list,
     source,
-    net_profit_list
 ):
+    net_profit_list = []
     for i, fa in enumerate(wfa_list):
         os_cfg = fa["os"]
         fee = fa.get("fee", 0.175)
@@ -151,8 +142,7 @@ def precompute_wfa_os(
 
         df = bt.df_1d.to_dict(orient="records")
         net_profit_list.extend([item["netProfit"] for item in df])
-        # break
-
+    return net_profit_list
 
 def calculate_metrics(data,cap=300, day=125, sample=10000):
     profits = np.array(data)
@@ -163,7 +153,8 @@ def calculate_metrics(data,cap=300, day=125, sample=10000):
     combinations = generate_combinations(profits=profits,day=day)
     
     equity = calculate_equity(combinations, cap)
-
+    sharpe = calculate_sharpe(combinations, day=day)
+    mean_sharpe = np.mean(sharpe)
     ruin_ranges = list(range(10, 45, 5)) 
     ruin_percentages = calculate_ruin_percentages(
         equity, cap, ruin_ranges
@@ -199,16 +190,21 @@ def calculate_metrics(data,cap=300, day=125, sample=10000):
             for threshold, percentile in zip(range_gain, percentiles)
         },
         **{
-            f"{threshold}MGR": round(float(percentile)* -1, 2)
+            f"{threshold}MGR": round(float(percentile), 2)
             for threshold, percentile in zip(mgr_range, percentiles_mgr)
         },
         **{
-            f"{threshold}MGD": round(float(percentile)* -1, 2)
+            f"{threshold}MGD": round(float(percentile), 2)
             for threshold, percentile in zip(mgd_range, percentiles_mgd)
         },
         "MG": round(np.median(gains), 2),
-        "MGR": round(mgr*-1, 2),
-        "MGD": round(np.median(mdd)*-1, 2)
+        "MGR": round(mgr, 2),
+        "MGD": round(np.median(mdd), 2),
+        "mean_sharpe": round(float(mean_sharpe), 2),
+        "max_mdd": round(np.max(mdd), 2),
+        "max_gain": round(np.max(gains), 2),
+        "mean_gain": round(np.mean(gains), 2),
+        "mean_mdd": round(np.mean(mdd), 2),
     }
     return sanitize_for_bson(final)
 
