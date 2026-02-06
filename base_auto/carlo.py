@@ -7,9 +7,9 @@ import pandas as pd
 from pymongo import MongoClient
 from bson import ObjectId
 from multiprocessing import Pool
-from auto.utils import get_mongo_uri, load_dic_freqs, sanitize_for_bson
-from gen.alpha_func_lib import Domains
-from gen.core_mega import Simulator
+from base_auto.utils import get_mongo_uri, load_dic_freqs, sanitize_for_bson
+from gen_spot.base_func_lib import Domains
+from gen_spot.core_mega import Simulator
 
 def generate_combinations(profits, sample=10000, day=125):
     indices = np.random.choice(
@@ -100,15 +100,15 @@ def calculate_ruin_median(equity, cap):
     return ruin_median, percentiles_mgr,mgr_range
 
 def precompute_wfa_os(
-    alpha_name,
+    base_name,
     gen,
     dic_freqs,
-    DIC_ALPHAS,
+    DIC_BASES,
     df_tick,
-    wfa_list,
-    source,
+    wfa_list
 ):
     net_profit_list = []
+
     for i, fa in enumerate(wfa_list):
         os_cfg = fa["os"]
         fee = fa.get("fee", 0.175)
@@ -122,10 +122,10 @@ def precompute_wfa_os(
             continue
 
         bt = Simulator(
-            alpha_name=alpha_name,
+            base_name=base_name,
             configs=strategies,
             dic_freqs=dic_freqs,
-            DIC_ALPHAS=DIC_ALPHAS,
+            DIC_BASES=DIC_BASES,
             df_tick=df_tick,
             start=os_cfg["start"],
             end=os_cfg["end"],
@@ -134,14 +134,13 @@ def precompute_wfa_os(
             gen=gen,
             booksize=fa["book_size"],
             is_sizing=fa["is_sizing"],
-            init_sizing=fa["init_sizing"],
-            source=source
+            init_sizing=fa["init_sizing"]
         )
 
         bt.compute_mega()
 
-        df = bt.df_1d.to_dict(orient="records")
-        net_profit_list.extend([item["netProfit"] for item in df])
+        df = bt.df_1d.copy()
+        net_profit_list.extend(df["netProfit"].values.tolist())
     return net_profit_list
 
 def calculate_metrics(data,cap=300, day=125, sample=10000):
@@ -208,24 +207,23 @@ def calculate_metrics(data,cap=300, day=125, sample=10000):
     }
     return sanitize_for_bson(final)
 
-def carlo(alpha_id):
+def carlo(base_id):
     mongo_client = MongoClient(get_mongo_uri("mgc3"))
-    alpha_db = mongo_client["alpha"]
-    alpha_collection = alpha_db["alpha_collection"]
+    base_db = mongo_client["base"]
+    base_collection = base_db["base_collection"]
 
-    doc = alpha_collection.find_one({"_id": ObjectId(alpha_id)})
+    doc = base_collection.find_one({"_id": ObjectId(base_id)})
     if not doc:
-        print("❌ Alpha not found")
+        print("❌ base not found")
         return
-    alpha_collection.update_one(
-        {"_id": ObjectId(alpha_id)},
+    base_collection.update_one(
+        {"_id": ObjectId(base_id)},
         {"$set": {
             "carlo.status": "running",
         }}
     )
-    alpha_name = doc["alpha_name"]
+    base_name = doc["base_name"]
     gen = doc.get("gen", "1_2")
-    overnight = doc.get("overnight",False)
     source = doc.get("source",None)
     wfa_list = doc.get("wfa", [])
     if not wfa_list:
@@ -233,22 +231,21 @@ def carlo(alpha_id):
         return
 
     print(f"🔍 CARLO-WFA (SEQUENTIAL)")
-    print(f"   alpha={alpha_name}")
+    print(f"   base={base_name}")
 
-    dic_freqs = load_dic_freqs(source, overnight)
-    DIC_ALPHAS = Domains.get_list_of_alphas()
+    dic_freqs = load_dic_freqs(source)
+    DIC_BASES = Domains.get_list_of_bases()
     df_tick = pd.read_pickle("/home/ubuntu/nevir/data/busd.pkl")
 
     start_time = time()
     # --- PRECOMPUTE OS ---
     net_profit_list = precompute_wfa_os(
-        alpha_name=alpha_name,
+        base_name=base_name,
         gen=gen,
         dic_freqs=dic_freqs,
-        DIC_ALPHAS=DIC_ALPHAS,
+        DIC_BASES=DIC_BASES,
         df_tick=df_tick,
         wfa_list=wfa_list,
-        source=source,
     )
     print(f"⏱️  Time gen: {time() - start_time:.2f} seconds")
     print(f"🧩 Precomputed {len(net_profit_list)} net profit entries")
@@ -256,14 +253,14 @@ def carlo(alpha_id):
     result = calculate_metrics(net_profit_list,cap=50*300,day=125)
     # print(result)
     print(f"⏱️  Time taken: {time() - start_time:.2f} seconds")
-    alpha_collection.update_one(
-        {"_id": ObjectId(alpha_id)},
+    base_collection.update_one(
+        {"_id": ObjectId(base_id)},
         {"$set": {
             "carlo.statistics": result,
         }}
     )
-    alpha_collection.update_one(
-        {"_id": ObjectId(alpha_id)},
+    base_collection.update_one(
+        {"_id": ObjectId(base_id)},
         {"$set": {
             "carlo.status": "done",
         }}
@@ -272,7 +269,7 @@ def carlo(alpha_id):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: /home/ubuntu/anaconda3/bin/python /home/ubuntu/nevir/auto/carlo.py <_id>")
+        print("Usage: /home/ubuntu/anaconda3/bin/python /home/ubuntu/nevir/base_auto/carlo.py <_id>")
         sys.exit(1)
 
     _id = sys.argv[1]

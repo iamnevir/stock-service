@@ -240,9 +240,8 @@ def carlo(alpha_id):
     df_tick = pd.read_pickle("/home/ubuntu/nevir/data/busd.pkl")
 
     start_time = time()
-    net_profit_list = []
     # --- PRECOMPUTE OS ---
-    precompute_wfa_os(
+    net_profit_list = precompute_wfa_os(
         alpha_name=alpha_name,
         gen=gen,
         dic_freqs=dic_freqs,
@@ -250,8 +249,8 @@ def carlo(alpha_id):
         df_tick=df_tick,
         wfa_list=wfa_list,
         source=source,
-        net_profit_list=net_profit_list
     )
+    print(f"⏱️  Time gen: {time() - start_time:.2f} seconds")
     print(f"🧩 Precomputed {len(net_profit_list)} net profit entries")
     # print(net_profit_list[0])
     result = calculate_metrics(net_profit_list,cap=50*300,day=125)
