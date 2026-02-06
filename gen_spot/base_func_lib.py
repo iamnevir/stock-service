@@ -360,8 +360,8 @@ class Base:
         signal = 2 * risk_adj_flow.rolling(window=window).rank(pct=True) - 1
         if factor > 0: 
             signal = signal.ewm(halflife=factor).mean()
-        df['signal'] = signal
-        return df
+        
+        return signal
     
 class Domains:
 
