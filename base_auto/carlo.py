@@ -11,7 +11,7 @@ from base_auto.utils import get_mongo_uri, load_dic_freqs, sanitize_for_bson
 from gen_spot.base_func_lib import Domains
 from gen_spot.core_mega import Simulator
 
-def generate_combinations(profits, sample=10000, day=125):
+def generate_combinations(profits, sample=10000, day=63):
     indices = np.random.choice(
         len(profits),
         size=(sample, day),
@@ -33,7 +33,7 @@ def calculate_equity(combinations, cap):
 
     return equity
 
-def calculate_sharpe(mat, day=125):
+def calculate_sharpe(mat, day=63):
     """
     returns: sharpe matrix shape (sample,)
     """
@@ -143,7 +143,7 @@ def precompute_wfa_os(
         net_profit_list.extend(df["netProfit"].values.tolist())
     return net_profit_list
 
-def calculate_metrics(data,cap=300, day=125, sample=10000):
+def calculate_metrics(data,cap=300, day=63, sample=10000):
     profits = np.array(data)
     # profit_percent = profits / 300 
     # risk_init = 0.001
@@ -250,7 +250,7 @@ def carlo(base_id):
     print(f"⏱️  Time gen: {time() - start_time:.2f} seconds")
     print(f"🧩 Precomputed {len(net_profit_list)} net profit entries")
     # print(net_profit_list[0])
-    result = calculate_metrics(net_profit_list,cap=50*300,day=125)
+    result = calculate_metrics(net_profit_list,cap=50*300,day=63)
     # print(result)
     print(f"⏱️  Time taken: {time() - start_time:.2f} seconds")
     base_collection.update_one(

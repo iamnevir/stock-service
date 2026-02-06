@@ -10,7 +10,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 from busd_auto.utils import get_mongo_uri, sanitize_for_bson
 
-def generate_combinations(profits, sample=10000, day=125):
+def generate_combinations(profits, sample=10000, day=63):
     indices = np.random.choice(
         len(profits),
         size=(sample, day),
@@ -32,7 +32,7 @@ def calculate_equity(combinations, cap):
 
     return equity
 
-def calculate_sharpe(mat, day=125):
+def calculate_sharpe(mat, day=63):
     """
     returns: sharpe matrix shape (sample,)
     """
@@ -139,7 +139,7 @@ def precompute_wfa_os(
 
     return net_profit_list
 
-def calculate_metrics(data,cap=300, day=125, sample=10000):
+def calculate_metrics(data,cap=300, day=63, sample=10000):
     profits = np.array(data)
     # profit_percent = profits / 300 
     # risk_init = 0.001
@@ -235,7 +235,7 @@ def carlo(busd_id):
     print(f"⏱️  Time gen: {time() - start_time:.2f} seconds")
     print(f"🧩 Precomputed {len(net_profit_list)} net profit entries")
     # print(net_profit_list[0])
-    result = calculate_metrics(net_profit_list,cap=50*300,day=125)
+    result = calculate_metrics(net_profit_list,cap=50*300,day=63)
     # print(result)
     print(f"⏱️  Time taken: {time() - start_time:.2f} seconds")
     busd_collection.update_one(
