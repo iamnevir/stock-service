@@ -363,6 +363,18 @@ class Base:
         
         return signal
     
+    @staticmethod
+    def base_012( df, window, factor):
+        smooth_flow = df['based_col'].ewm(halflife=factor).mean()
+        momentum = smooth_flow.diff()
+        
+        roll = momentum.rolling(window=window)
+        m_min = roll.min()
+        m_max = roll.max()
+        
+        signal = 2 * ((momentum - m_min) / (m_max - m_min + 1e-9)) - 1
+        return signal
+    
 class Domains:
 
     @staticmethod
