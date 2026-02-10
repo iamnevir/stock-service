@@ -13,6 +13,7 @@ LOG_FILE = "/home/ubuntu/nevir/mongo_bak/backup.log"
 BACKUP_DBS = [
     "alpha",
     "busd",
+    "base",
     "stock_backtest",
     "gen1_2"
 ]
@@ -21,6 +22,7 @@ BACKUP_DBS = [
 EXCLUDE_COLLECTIONS = {
     "alpha": ["wfa_results", "correlation_results"],
     "busd": ["wfa_results", "correlation_results"],
+    "base": ["wfa_results", "correlation_results"],
     "stock_backtest": ["correlation_results"],
     "gen1_2": ["correlation_results"]
 }

@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
 from gen.core import Simulator as SimulatorGen
-def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, source, overnight, DIC_ALPHAS, return_dict):
+def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, source, overnight, DIC_ALPHAS, return_dict, cut_time):
 
     # ====== PARSE CONFIG (logic giữ nguyên 100%) ======
     gen_params = {}
@@ -111,6 +111,8 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
         df_ps = dic_freqs[list(dic_freqs.keys())[0]].copy()
         df_ps = df_ps.set_index("datetime")
         df_pos = pd.merge(df_ps, df, on='datetime', how='left')
+        if cut_time:
+            df_pos.loc[df_pos['executionTime'] >= cut_time, "position"] = 0.0
         df_pos['position'] = df_pos['position'].ffill().fillna(0)
         df2 = df_pos[['position']].rename(columns={'position': index})
         
@@ -118,7 +120,7 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
     return_dict[index] = df2
 
 class Simulator:
-    def __init__(self, alpha_name,configs ,fee=0.1, dic_freqs=None,DIC_ALPHAS=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5,source=None,overnight=False):
+    def __init__(self, alpha_name,configs ,fee=0.1, dic_freqs=None,DIC_ALPHAS=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5,source=None,overnight=False,cut_time=None):
 
         self.configs = list(configs) if configs is not None else []
         self.fee = fee
@@ -129,6 +131,7 @@ class Simulator:
         self.end = end
         self.source = source
         self.overnight = overnight
+        self.cut_time = cut_time
         if DIC_ALPHAS:
             self.DIC_ALPHAS = DIC_ALPHAS
             self.alpha_func = DIC_ALPHAS[alpha_name]
@@ -172,7 +175,8 @@ class Simulator:
                     self.source,
                     self.overnight,
                     self.DIC_ALPHAS,
-                    return_dict
+                    return_dict,
+                    self.cut_time
                 )
             )
             p.start()
@@ -213,17 +217,20 @@ class Simulator:
             df_alpha["position_init"] = df_alpha["executionT"].map(df_pos_sum["position"]) / self.n_alphas 
             # df_alpha["position_init"] = df_pos_sum['position'] / self.n_alphas 
           
-            self.adjust_positions(df_alpha)
             df_alpha = self.sizing_positon(df_alpha)
         else:
             # df_alpha['position'] = ((df_pos_sum['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
+            # print(df_alpha)
             if self.source == "volume_bar" or self.source == "dollar_bar":
                 df_alpha["position"] = df_pos_sum["position"].reindex(df_alpha.index).ffill().fillna(0)
             else:
                 df_alpha["position"] = df_alpha["executionT"].map(df_pos_sum["position"])
+            
             df_alpha["position"] = ((df_alpha['position'] / self.n_alphas  * self.booksize).round(6).astype(int))
 
         df_alpha = df_alpha[(df_alpha['day'] >= start) & (df_alpha['day'] <= end)]
+        # if self.overnight:
+        #     df_alpha.loc[(df_alpha['executionTime'] == '14:45:00') & (df_alpha['executable'] == True), 'day'] = df_alpha['day'].shift(-1)
         df_alpha['grossProfit'] = df_alpha['position'] * df_alpha['priceChange']
         df_alpha['action'] = df_alpha['position'] - df_alpha['position'].shift(1, fill_value=0)
         df_alpha['turnover'] = df_alpha['action'].abs()
@@ -238,6 +245,7 @@ class Simulator:
         }
         if self.overnight:
             df_alpha.loc[(df_alpha['executionTime'] == '14:45:00') & (df_alpha['executable'] == True), 'day'] = df_alpha['day'].shift(-1)
+        # print(df_alpha[df_alpha['day'] == "2025_01_02"])
         if "booksize" in df_alpha.columns:
             agg_dict["booksize"] = "last"
         df_1d = (df_alpha.groupby('day')
