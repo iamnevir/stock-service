@@ -31,6 +31,7 @@ def os_wfa_backtest(id, start, end):
     alpha_name = alpha_doc.get("alpha_name", "")
     source = alpha_doc.get("source", None)
     overnight = alpha_doc.get("overnight", False)
+    cut_time = alpha_doc.get("cut_time",None)
     gen = alpha_doc.get("gen", "1_2")
     fee = _fa.get("fee", 0.175)
     DIC_ALPHAS = Domains.get_list_of_alphas()
@@ -65,7 +66,8 @@ def os_wfa_backtest(id, start, end):
             is_sizing=is_sizing,
             init_sizing=init_sizing,
             source=source,
-            overnight=overnight
+            overnight=overnight,
+            cut_time=cut_time
         )
         bt.compute_mega()
         bt.compute_performance()
