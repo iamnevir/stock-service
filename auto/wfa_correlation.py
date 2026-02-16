@@ -185,6 +185,7 @@ def build_action_matrix(id_to_trade_df):
         tmp['action'] = np.where(tmp['action'] > 1, 1,
                         np.where(tmp['action'] < 1, -1, 0))
         tmp = tmp.set_index('executionT')
+        tmp = tmp[~tmp.index.duplicated(keep="first")]
         tmp.rename(columns={'action': str(sid)}, inplace=True)
         dfs.append(tmp)
 
