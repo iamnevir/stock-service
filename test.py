@@ -3,7 +3,7 @@ import pandas as pd
 
 
 src_path = "/home/ubuntu/nevir/data/busd.pkl"
-dst_path = "/home/ubuntu/nevir/data/busd_last.pkl"
+# dst_path = "/home/ubuntu/nevir/data/busd_last.pkl"
 
 
 # giả sử busd.pkl là DataFrame

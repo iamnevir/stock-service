@@ -154,36 +154,64 @@ def compute_performance_with_df1d(cv,equity =300,df_1d=None):
         "max_gross": round(df_1d['netProfit'].max(), 2),
     }
     return new_report
+
+def parse_date_safe(x):
+    if not isinstance(x, str):
+        return x
+    for fmt in ("%Y%m%d", "%Y_%m_%d"):
+        try:
+            return pd.to_datetime(x, format=fmt)
+        except ValueError:
+            pass
+    raise ValueError(f"Unknown date format: {x}")
+
 def split_os_to_chunks(os_item):
-    # ---- parse input (string -> Timestamp) ----
-    start_dt = (
-        pd.to_datetime(os_item["start"], format="%Y_%m_%d")
-        if isinstance(os_item["start"], str)
-        else os_item["start"]
-    )
+    # ---------- helpers ----------
+    def parse_date(x):
+        if isinstance(x, int):
+            return pd.to_datetime(str(x), format="%Y%m%d")
+        elif isinstance(x, str):
+            if "_" in x:
+                return pd.to_datetime(x, format="%Y_%m_%d")
+            else:
+                return pd.to_datetime(x)
+        else:
+            return pd.to_datetime(x)  # ⚠️ KHÔNG return x thẳng
 
-    end_dt = (
-        pd.to_datetime(os_item["end"], format="%Y_%m_%d")
-        if isinstance(os_item["end"], str)
-        else os_item["end"]
-    )
+    def format_date(ts, mode):
+        if mode == "int":
+            return int(ts.strftime("%Y%m%d"))
+        elif mode == "str":
+            return ts.strftime("%Y_%m_%d")
 
-    df = os_item["df"]
+    # ---------- detect mode ----------
+    if isinstance(os_item["start"], int):
+        mode = "int"
+    elif isinstance(os_item["start"], str) and "_" in os_item["start"]:
+        mode = "str"
+    else:
+        mode = "auto"
 
-    # ---- ensure DatetimeIndex for slicing ----
+    # ---------- parse input ----------
+    start_dt = parse_date(os_item["start"])
+    end_dt   = parse_date(os_item["end"])
+
+    df = os_item["df"].copy()
+
+    # ---------- parse index (PHẢI ra DatetimeIndex) ----------
     if not isinstance(df.index, pd.DatetimeIndex):
-        df = df.copy()
-        df.index = pd.to_datetime(df.index, format="%Y_%m_%d")
+        df.index = pd.to_datetime(df.index.map(parse_date))
 
-    # ---- IMPORTANT: sort index ----
     df = df.sort_index()
 
+    # ---------- cut points ----------
     cut_points = [
         start_dt + pd.DateOffset(months=2),
         start_dt + pd.DateOffset(months=4),
         end_dt
     ]
 
+    # ---------- split ----------
     chunks = []
     prev = start_dt
     chunk_id = 1
@@ -196,17 +224,25 @@ def split_os_to_chunks(os_item):
             ((df.index <= cut) if is_last else (df.index < cut))
         )
 
-        df_chunk = df.loc[mask].copy()
+        df_chunk = df.loc[mask]
 
-        if len(df_chunk) == 0:
+        if df_chunk.empty:
             prev = cut
             continue
+
+        df_chunk = df_chunk.copy()
+
+        # convert index back
+        if mode == "int":
+            df_chunk.index = df_chunk.index.strftime("%Y%m%d").astype(int)
+        else:
+            df_chunk.index = df_chunk.index.strftime("%Y_%m_%d")
 
         chunks.append({
             "df": df_chunk,
             "equity": os_item["equity"],
-            "start": prev.strftime("%Y_%m_%d"),
-            "end": cut.strftime("%Y_%m_%d"),
+            "start": format_date(prev, mode),
+            "end": format_date(cut, mode),
             "chunk_id": chunk_id
         })
 
@@ -214,7 +250,6 @@ def split_os_to_chunks(os_item):
         prev = cut
 
     return chunks
-
 
 def precompute_wfa_os(
     alpha_name,

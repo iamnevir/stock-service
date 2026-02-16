@@ -81,7 +81,7 @@ def run_all_wfa(alpha_id: str):
                 os_wfa_backtest(id=alpha_id, start=start, end=end)
 
             logger.info("WFA idx=%d done", idx)
-        logger.info("Run CPCV backtest", idx)
+        logger.info("Run CPCV backtest")
         cpcv(alpha_id) 
         carlo(alpha_id)
     except Exception:
