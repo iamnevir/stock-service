@@ -107,6 +107,8 @@ def precompute_wfa_os(
     df_tick,
     wfa_list,
     source,
+    cut_time,
+    N,
 ):
     net_profit_list = []
     for i, fa in enumerate(wfa_list):
@@ -135,7 +137,9 @@ def precompute_wfa_os(
             booksize=fa["book_size"],
             is_sizing=fa["is_sizing"],
             init_sizing=fa["init_sizing"],
-            source=source
+            source=source,
+            cut_time=cut_time,
+            N=N
         )
 
         bt.compute_mega()
@@ -226,6 +230,8 @@ def carlo(alpha_id):
     alpha_name = doc["alpha_name"]
     gen = doc.get("gen", "1_2")
     overnight = doc.get("overnight",False)
+    cut_time = doc.get("cut_time",None)
+    N = doc.get("N",3)
     source = doc.get("source",None)
     wfa_list = doc.get("wfa", [])
     if not wfa_list:
@@ -249,6 +255,8 @@ def carlo(alpha_id):
         df_tick=df_tick,
         wfa_list=wfa_list,
         source=source,
+        cut_time=cut_time,
+        N=N
     )
     print(f"⏱️  Time gen: {time() - start_time:.2f} seconds")
     print(f"🧩 Precomputed {len(net_profit_list)} net profit entries")

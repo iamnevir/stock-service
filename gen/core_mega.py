@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
 from gen.core import Simulator as SimulatorGen
-def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, source, overnight, DIC_ALPHAS, return_dict, cut_time):
+def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, source, overnight, DIC_ALPHAS, return_dict, cut_time, N):
 
     # ====== PARSE CONFIG (logic giữ nguyên 100%) ======
     gen_params = {}
@@ -74,7 +74,8 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
         start=start,
         end=end,
         source=source,
-        overnight=overnight
+        overnight=overnight,
+        N=N
     )
 
     bt.compute_signal()
@@ -120,7 +121,7 @@ def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_ti
     return_dict[index] = df2
 
 class Simulator:
-    def __init__(self, alpha_name,configs ,fee=0.1, dic_freqs=None,DIC_ALPHAS=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5,source=None,overnight=False,cut_time=None):
+    def __init__(self, alpha_name,configs ,fee=0.1, dic_freqs=None,DIC_ALPHAS=None,df_tick=None,start=None,end=None,stop_loss=0,gen='gen1_2',booksize=None,is_sizing=False,init_sizing=37.5,source=None,overnight=False,cut_time=None,N=3):
 
         self.configs = list(configs) if configs is not None else []
         self.fee = fee
@@ -132,6 +133,7 @@ class Simulator:
         self.source = source
         self.overnight = overnight
         self.cut_time = cut_time
+        self.N = N
         if DIC_ALPHAS:
             self.DIC_ALPHAS = DIC_ALPHAS
             self.alpha_func = DIC_ALPHAS[alpha_name]
@@ -176,7 +178,8 @@ class Simulator:
                     self.overnight,
                     self.DIC_ALPHAS,
                     return_dict,
-                    self.cut_time
+                    self.cut_time,
+                    self.N
                 )
             )
             p.start()

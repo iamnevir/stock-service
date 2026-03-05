@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
 class Simulator:
-    def __init__(self, alpha_name, freq=1, gen_params=None, fee=0.1, df_alpha=None,DIC_ALPHAS=None,params={},df_tick=None,gen=None,stop_loss=0,is_sizing=False,init_sizing=37.5,start=None,end=None,booksize=1,source="",overnight=False): 
+    def __init__(self, alpha_name, freq=1, gen_params=None, fee=0.1, df_alpha=None,DIC_ALPHAS=None,params={},df_tick=None,gen=None,stop_loss=0,is_sizing=False,init_sizing=37.5,start=None,end=None,booksize=1,source="",overnight=False,N=3): 
 
         self.freq = freq
         self.gen_params = gen_params
@@ -15,7 +15,7 @@ class Simulator:
         self.end = end
         self.source = source
         self.overnight = overnight
-        # df_alpha = df_alpha[(df_alpha['day'] >= start) & (df_alpha['day'] <= end)].copy()
+        self.N = N
         self.booksize = booksize
         ohlc_cols = ["open","high","low","close"]
         df_alpha.loc[:, ohlc_cols] = df_alpha[ohlc_cols].astype(float)
@@ -91,7 +91,7 @@ class Simulator:
                 smooth_window=self.gen_params['smooth'],
                 overnight=self.overnight)
         if self.source == "ha_confirm":
-            Alpha_Domains.ha_confirm(self.df_alpha, N=3)
+            Alpha_Domains.ha_confirm(self.df_alpha, N=self.N)
         if self.is_sizing:
             self.df_alpha["position_init"] = self.df_alpha['position'].values 
             self.sizing_positon()
@@ -612,7 +612,7 @@ class Alpha_Domains:
             df_1d['ccd1'] = cdd_pct
             df_1d['mdd1'] = mdd_pct
             
-            # print(df_alpha[df_alpha['day'] == "2025_12_31"][['open',"high","low","close",'executionT',"position","entryPrice","exitPrice","grossProfit","netProfit","signal"]])
+            # print(df_alpha[df_alpha['day'] == "2025_09_08"][['open',"high","low","close",'executionT',"position","entryPrice","exitPrice","grossProfit","netProfit","signal"]])
             # Alpha_Domains.extract_trades_df(df_alpha)
             return df_1d, new_report
         except Exception as e:

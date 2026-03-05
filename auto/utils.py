@@ -45,7 +45,7 @@ def sanitize_for_bson(obj):
             return [sanitize_for_bson(x) for x in obj]
         return obj
 
-def make_key_alpha(config, alpha_name, fee, start, end, stop_loss=0, gen=None,source=None,overnight=False,cut_time=None):
+def make_key_alpha(config, alpha_name, fee, start, end, stop_loss=0, gen=None,source=None,overnight=False,cut_time=None,N=None):
     identity = {
         "config": config,
         "alpha_name": alpha_name,
@@ -56,7 +56,10 @@ def make_key_alpha(config, alpha_name, fee, start, end, stop_loss=0, gen=None,so
         "gen": gen,
     }
     if source is not None:
+        if source == "ha_confirm" and N is not None:
+            identity["N"] = N
         identity["source"] = source
+        
     if overnight:
         identity["overnight"] = overnight
     if cut_time is not None:

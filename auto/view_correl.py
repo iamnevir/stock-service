@@ -23,9 +23,6 @@ def view_wfa_correlation(id, start, end):
 
     alpha_name = alpha_doc.get("alpha_name", "")
     wfa = alpha_doc.get("wfa", [])
-    source = alpha_doc.get("source", None)
-    overnight = alpha_doc.get("overnight", False)
-    cut_time = alpha_doc.get("cut_time", None)
     fa = None
     for item in wfa:
         is_data = item.get("is", {})
@@ -40,6 +37,10 @@ def view_wfa_correlation(id, start, end):
     threshold = correl.get("threshold", 95)
     gen = alpha_doc.get("gen")
     fee = fa.get("fee", 0.175)
+    source = alpha_doc.get("source", None)
+    overnight = alpha_doc.get("overnight", False)
+    cut_time = alpha_doc.get("cut_time", None)
+    N = alpha_doc.get("N", 3)
     results = []
     need_configs = filter_report.get("strategies", [])
     
@@ -52,7 +53,8 @@ def view_wfa_correlation(id, start, end):
                 gen=gen,
                 source=source,
                 overnight=overnight,
-                cut_time=cut_time
+                cut_time=cut_time,
+                N=N
             ) for config in need_configs]
     total_config = len(list_ids)
     print(f"Total strategies to consider: {total_config}")

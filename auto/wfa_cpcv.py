@@ -258,7 +258,9 @@ def precompute_wfa_os(
     DIC_ALPHAS,
     df_tick,
     wfa_list,
-    source
+    source,
+    cut_time,
+    N,
 ):
     PRE = {}
 
@@ -288,7 +290,9 @@ def precompute_wfa_os(
             booksize=fa["book_size"],
             is_sizing=fa["is_sizing"],
             init_sizing=fa["init_sizing"],
-            source=source
+            source=source,
+            cut_time=cut_time,
+            N=N,
         )
 
         bt.compute_mega()
@@ -365,7 +369,9 @@ def cpcv(alpha_id):
     alpha_name = doc["alpha_name"]
     gen = doc.get("gen", "1_2")
     overnight = doc.get("overnight",False)
+    cut_time = doc.get("cut_time",None)
     source = doc.get("source",None)
+    N = doc.get("N",3)
     wfa_list = doc.get("wfa", [])
     if not wfa_list:
         print("❌ No WFA data")
@@ -390,7 +396,9 @@ def cpcv(alpha_id):
         DIC_ALPHAS=DIC_ALPHAS,
         df_tick=df_tick,
         wfa_list=wfa_list,
-        source=source
+        source=source,
+        cut_time=cut_time,
+        N=N
     )
 
     PRE = {}

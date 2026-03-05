@@ -32,6 +32,7 @@ def os_wfa_backtest(id, start, end):
     source = alpha_doc.get("source", None)
     overnight = alpha_doc.get("overnight", False)
     cut_time = alpha_doc.get("cut_time",None)
+    N = alpha_doc.get("N",3)
     gen = alpha_doc.get("gen", "1_2")
     fee = _fa.get("fee", 0.175)
     DIC_ALPHAS = Domains.get_list_of_alphas()
@@ -43,7 +44,9 @@ def os_wfa_backtest(id, start, end):
     start = _os.get("start")
     end = _os.get("end")
     stop_loss = _fa.get(f"stop_loss", 0)
-    book_size = _fa.get(f"book_size", 1)
+    book_size = _fa.get("book_size")
+    if book_size is None:
+        book_size = len(configs)
     is_sizing = _fa.get(f"is_sizing",False)
     init_sizing = _fa.get(f"init_sizing",30)
     configs = correlation.get("results", {}).get("strategies",[])
@@ -67,7 +70,8 @@ def os_wfa_backtest(id, start, end):
             init_sizing=init_sizing,
             source=source,
             overnight=overnight,
-            cut_time=cut_time
+            cut_time=cut_time,
+            N=N
         )
         bt.compute_mega()
         bt.compute_performance()

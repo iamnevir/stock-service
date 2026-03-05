@@ -14,7 +14,7 @@ from gen.core import Simulator
 
 from pymongo.errors import BulkWriteError
 
-def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None, start=None, end=None, source=None, overnight=False,cut_time=None):
+def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None, start=None, end=None, source=None, overnight=False,cut_time=None, N=None):
     gen_params = {}
     if gen == "1_1":
         freq, threshold, halflife, *rest = config.split("_")
@@ -106,7 +106,8 @@ def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None,
         start=start,
         end=end,
         source=source,
-        overnight=overnight
+        overnight=overnight,
+        N=N,
     )
     bt.compute_signal()
     bt.compute_position()
@@ -129,7 +130,7 @@ def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None,
                 gen=gen,
                 source=source,
                 overnight=overnight,
-                cut_time=cut_time)
+                cut_time=cut_time,N=N)
 
     keys_to_delete = ["aroe", "cdd", "cddPct","lastProfit","max_loss","max_gross","num_trades"]
     for key in keys_to_delete:
@@ -140,10 +141,10 @@ def worker_task_batch(args):
     """
     Mỗi worker xử lý 1 batch (1000 configs)
     """
-    batch_configs, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight, cut_time = args
+    batch_configs, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight, cut_time, N = args
     results = []
     for cfg in batch_configs:
-        rpt = run_single_backtest(cfg, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight, cut_time)
+        rpt = run_single_backtest(cfg, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight, cut_time, N)
         results.append(rpt)
     return results
 
@@ -450,6 +451,7 @@ def correlation(id, start, end):
     overnight = alpha_doc.get("overnight",False)
     cut_time = alpha_doc.get("cut_time",None)
     fee = fa.get("fee")
+    N = alpha_doc.get("N", 3)
     filter_report = fa.get("filter_report")
     DIC_ALPHAS = Domains.get_list_of_alphas()
     dic_freqs = load_dic_freqs(source, overnight)
@@ -464,7 +466,8 @@ def correlation(id, start, end):
                 gen=gen,
                 source=source,
                 overnight=overnight,
-                cut_time=cut_time
+                cut_time=cut_time,
+                N=N
             ) for config in need_configs]
         exist_stra = list(coll.find({"_id": {"$in": list_ids}}))
         logger.info(f"🔎 Found {len(exist_stra)} existing backtest results in DB.")
@@ -489,7 +492,7 @@ def correlation(id, start, end):
             batch_size_configs = total if total < 1000 else 1000
             batches = [run_configs[i:i + batch_size_configs] for i in range(0, total, batch_size_configs)]
             
-            args_list = [(batch, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight, cut_time) for batch in batches]
+            args_list = [(batch, alpha_name, fee, dic_freqs, DIC_ALPHAS, gen, start, end, source, overnight, cut_time, N) for batch in batches]
             
             logger.info(f"Chạy với {n_workers} processes, tổng {len(batches)} batches mỗi batch {batch_size_configs} configs.")
             temp_batch = []
