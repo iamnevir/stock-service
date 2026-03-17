@@ -40,8 +40,8 @@ def upload_file_to_drive(save_file):
         print(f"   ❌ Upload failed: {e}")
 
 
-for file_name in os.listdir('/home/ubuntu/nevir/gen_spot/results_1_2'):
-    if file_name.endswith('.xlsx'):
-        full_path = os.path.join('/home/ubuntu/nevir/gen_spot/results_1_2', file_name)
-        upload_file_to_drive(full_path)
-        
+# for file_name in os.listdir('/home/ubuntu/nevir/gen_spot/results_1_2'):
+#     if file_name.endswith('.xlsx'):
+#         full_path = os.path.join('/home/ubuntu/nevir/gen_spot/results_1_2', file_name)
+#         upload_file_to_drive(full_path)
+upload_file_to_drive("/home/ubuntu/nevir/huy/gen/results_1_1/alpha_full_factor_105_2018_2025.xlsx")

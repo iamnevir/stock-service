@@ -2,7 +2,6 @@ import json
 import numpy as np
 from itertools import product
 import pandas as pd
-from matplotlib import pyplot as plt
 import pickle
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
@@ -18,6 +17,7 @@ from openpyxl.formatting.rule import ColorScaleRule
 import os
 from datetime import datetime
 
+from googleapiclient.errors import HttpError
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -38,6 +38,7 @@ class PKLToXLSXExporter:
             'alphaName': 'Strategy',
             'freq': 'Frequency',
             'fee': 'Fee',
+            
             'sharpe': 'Sharpe Ratio',
             "hhi": "HHI",
             'daily_sharpe': 'Daily Sharpe',
@@ -49,6 +50,7 @@ class PKLToXLSXExporter:
             'ppc': 'PPC',
             'tvr': 'TVR',
             "netProfit": 'Net Profit',
+            "overnight_pnl": "Overnight PnL",
             'start': 'Start',
             'end': 'End',
             'total_return': 'Total Return (%)',
@@ -434,9 +436,9 @@ class ScanParams:
     Ultra-optimized generator for alpha parameter scans.
     """
 
-    def __init__(self, lst_alpha_names, alpha_params, min_freq, max_freq, fee, gen=None):
+    def __init__(self, lst_alpha_names, alpha_params, min_freq, max_freq, step_freq, fee, gen=None):
         self.alpha_params = alpha_params or {}
-        self.min_freq, self.max_freq = min_freq, max_freq
+        self.min_freq, self.max_freq, self.step_freq  = min_freq, max_freq, step_freq
         self.fee, self.gen = fee, gen
         self.lst_reports = []
 
@@ -477,13 +479,13 @@ class ScanParams:
 
     # ---------- Core generator ----------
     def gen_lst_reports(self, lst_alpha_names):
-        freqs = range(self.min_freq, self.max_freq + 1,1)
+        freqs = range(self.min_freq, self.max_freq + self.step_freq, self.step_freq)
         params = self.gen_params_combinations()
         gl = self.gen_list
 
         # map structure: gen -> (extra_fields, value_generators)
         map_gen = {
-            "1_1": (["threshold", "halflife"], [gl(), [0.0] + gl()]),
+            "1_1": (["threshold", "halflife"], [gl(), [0.0]+gl()]), 
             "1_2": (["upper_lower"], [self.gen_band_list()]),
             "1_3": (["score_entry_exit"], [self.gen_score_list()]),
             "1_4": (["entry_exit", "smooth"], [self.gen_smooth_list(), [1,2,3,4]]),
@@ -521,11 +523,20 @@ class ScanParams:
 
 
 
-def load_dic_freqs():
-    fn = "/home/ubuntu/nevir/gen/alpha.pkl"
+def load_dic_freqs(source):
+    if source == "volume_bar":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_volume_bar.pickle"
+    elif source == "dollar_bar":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_dollar_bar.pickle"
+    elif source == "ha":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_ha.pickle"
+    elif source == "ha_confirm":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_ha_confirm.pickle"
+    else:
+        fn = "/home/ubuntu/nevir/huy/gen/alpha.pkl"
     with open(fn, 'rb') as file:
         DIC_FREQS = pickle.load(file)
-        
+
     return DIC_FREQS
 
 
@@ -564,6 +575,7 @@ def run_single_backtest(config, dic_freqs, DIC_ALPHAS,df_tick=None,gen=None,star
     )
     bt.compute_signal()
     bt.compute_position()
+    # bt.change_cut_time(dic_freqs[1].copy(), "14:25:00")
     bt.compute_tvr_and_fee()
     bt.compute_profits()
     bt.compute_performance(start=start, end=end)
@@ -721,118 +733,240 @@ def get_drive_service():
             token.write(creds.to_json())
     return build('drive', 'v3', credentials=creds)
 
-# if __name__ == '__main__': 
-#     gen = "1_2"
-#     folder_path = f"/home/ubuntu/nevir/gen/results_{gen}/"
-    
-#     for alpha_name in [
-#     #   "alpha_074",
-#     # "alpha_075","alpha_088","alpha_092","alpha_095","alpha_099","alpha_101_volume",
-#     "alpha_keltner",
-#     # "alpha_418",
-#     # "alpha_018",
-#     # "alpha_038","alpha_005",
-#     # "alpha_064",
-#     # "alpha_065"
-#     # "alpha_bbb"
-#         ]:
-#         alpha_params = {
-#             'window': {'start': 5, 'end': 100, 'step': 5},
-#             # "halflife": {'start': 0, 'end': 0.9, 'step': 0.3},
-#         }
 
-#         years = [
-#             # 2025
-#             # , 2024, 2023, 2022,
-#             # 2021, 2020, 
-#             # 2019, 2018, 
-#             None
-#         ]
-#         dic_freqs = load_dic_freqs()
-#         DIC_ALPHAS = Domains.get_list_of_alphas()
-        
+def upload_xlsx_to_gdrive(
+    save_file: str,
+    parent_folder_id: str,
+    output_json: str,
+    upload_results: dict,
+    result_key: str,
+    max_retries: int = 5,
+    base_delay: int = 5
+):
+    """
+    Upload XLSX -> Google Drive (convert to Google Sheet)
+    Retry an toàn nếu timeout / lỗi mạng
 
-#         # file json để lưu kết quả upload
-#         OUTPUT_JSON = f"/home/ubuntu/nevir/gen/r_{gen}.json"
-#         if os.path.exists(OUTPUT_JSON):
-#             with open(OUTPUT_JSON, 'r') as f:
-#                 upload_results = json.load(f)
-#         else:
-#             upload_results = {}
-#         prefix = ""
-#         os.makedirs(folder_path, exist_ok=True)
-#         for year in years:
-#             if year is None:
-#                 # start = '2021_02_25'
-#                 # end = '2025_11_20'
-#                 start = '2018_01_01'
-#                 end = '2025_09_08'
-#                 save_file = os.path.join(folder_path, f"{prefix}_2018_2025.xlsx")
-#                 year_label = "2018_2025"
-#             elif year == 2024:
-#                 start = f'{year}_01_01'
-#                 end = f'{year}_12_31'
-#                 save_file = os.path.join(folder_path, f"{alpha_name}{prefix}_{year}.xlsx")
-#                 year_label = str(year)
-#             elif year == 2025:
-#                 start = f'{year}_01_01'
-#                 end = f'{year}_09_08'
-#                 save_file = os.path.join(folder_path, f"{alpha_name}{prefix}_{year}.xlsx")
-#                 year_label = str(year)
-#             else:
-#                 start = f'{year}_01_01'
-#                 end = f'{year}_12_31'
-#                 save_file = os.path.join(folder_path, f"{alpha_name}{prefix}_{year}.xlsx")
-#                 year_label = str(year)
-if __name__ == '__main__': 
-    gen = "1_1"
-    folder_path = f"/home/ubuntu/nevir/gen/results_{gen}/"
-    for alpha_name in ["alpha_092"]:
-        alpha_params = {
-            'window': {'start': 10, 'end': 10, 'step': 10},
-        }
+    Thành công khi:
+    - upload OK
+    - share public OK
+    - lưu link vào json OK
+    """
 
-        dic_freqs = load_dic_freqs()
-        DIC_ALPHAS = Domains.get_list_of_alphas()
-        
-        # file json để lưu kết quả upload
-        OUTPUT_JSON = f"/home/ubuntu/nevir/gen/r_{gen}.json"
-        if os.path.exists(OUTPUT_JSON):
-            with open(OUTPUT_JSON, 'r') as f:
-                upload_results = json.load(f)
+    if not os.path.exists(save_file):
+        raise FileNotFoundError(f"File not found: {save_file}")
+
+    sheet_name = os.path.splitext(os.path.basename(save_file))[0]
+    service = get_drive_service()
+
+    file_metadata = {
+        "name": sheet_name,
+        "mimeType": "application/vnd.google-apps.spreadsheet",
+        "parents": [parent_folder_id],
+    }
+
+    for attempt in range(1, max_retries + 1):
+        file_id = None
+        try:
+            print(f"📤 Upload attempt {attempt}/{max_retries}: {sheet_name}")
+
+            # ⚠️ MUST recreate media every retry
+            media = MediaFileUpload(
+                save_file,
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                resumable=True,
+            )
+
+            # ---------- Upload ----------
+            response = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields="id",
+            ).execute()
+
+            file_id = response.get("id")
+            if not file_id:
+                raise RuntimeError("Upload succeeded but no file_id returned")
+
+            # ---------- Share public ----------
+            permission = {
+                "type": "anyone",
+                "role": "reader",
+            }
+
+            service.permissions().create(
+                fileId=file_id,
+                body=permission,
+                fields="id",
+            ).execute()
+
+            # ---------- Save result ----------
+            sheet_url = f"https://docs.google.com/spreadsheets/d/{file_id}"
+
+            upload_results[result_key] = sheet_url
+            with open(output_json, "w", encoding="utf-8") as f:
+                json.dump(upload_results, f, indent=2, ensure_ascii=False)
+
+            print(f"✅ Upload & share OK: {sheet_url}")
+            print(f"🔗 Updated JSON: {output_json}")
+
+            return sheet_url
+
+        except HttpError as e:
+            print(f"⚠️ HttpError (attempt {attempt}): {e}")
+
+        except Exception as e:
+            print(f"⚠️ Error (attempt {attempt}): {e}")
+
+        # ---------- Retry ----------
+        if attempt < max_retries:
+            sleep_time = base_delay * attempt
+            print(f"🔁 Retry after {sleep_time}s...\n")
+            time.sleep(sleep_time)
         else:
-            upload_results = {}
+            raise RuntimeError(
+                f"❌ Upload failed after {max_retries} attempts: {sheet_name}"
+            )
+            
+def generate_time_ranges(mode):
+    if mode == "FULL":
+        return [{
+            "label": "2018_2025",
+            "start": "2018_01_01",
+            "end": "2025_09_08"
+        }]
 
-        # --- Danh sách segment chỉ chứa train ---
-        segments = [
-            {"train_start": "2018_01_01", "train_end": "2020_01_01"},
-            {"train_start": "2018_07_01", "train_end": "2020_07_01"},
-            {"train_start": "2019_01_01", "train_end": "2021_01_01"},
-            {"train_start": "2019_07_01", "train_end": "2021_07_01"},
-            {"train_start": "2020_01_01", "train_end": "2022_01_01"},
-            {"train_start": "2020_07_01", "train_end": "2022_07_01"},
-            {"train_start": "2021_01_01", "train_end": "2023_01_01"},
-            {"train_start": "2021_07_01", "train_end": "2023_07_01"},
-            {"train_start": "2022_01_01", "train_end": "2024_01_01"},
-            {"train_start": "2022_07_01", "train_end": "2024_07_01"},
-            {"train_start": "2023_01_01", "train_end": "2025_01_01"},
-            {"train_start": "2023_07_01", "train_end": "2025_07_01"},
+    if mode == "YEARLY":
+        return [
+            {
+                "label": str(y),
+                "start": f"{y}_01_01",
+                "end": f"{y}_12_31"
+            } for y in range(2019, 2025)
         ]
 
-        # --- Lặp qua từng segment train ---
-        for seg in segments:
-            start = seg["train_start"]
-            end = seg["train_end"]
+    if mode == "WFO":
+        segments = [
+            ("2018_01_01", "2020_01_01"),
+            ("2018_07_01", "2020_07_01"),
+            ("2019_01_01", "2021_01_01"),
+            ("2019_07_01", "2021_07_01"),
+            ("2020_01_01", "2022_01_01"),
+            ("2020_07_01", "2022_07_01"),
+            ("2021_01_01", "2023_01_01"),
+            ("2021_07_01", "2023_07_01"),
+            ("2022_01_01", "2024_01_01"),
+            ("2022_07_01", "2024_07_01"),
+            ("2023_01_01", "2025_01_01"),
+            ("2023_07_01", "2025_07_01"),
+            ("2024_01_01", "2026_01_01"),
+        ]
+        return [
+            {
+                "label": f"{s}_{e}",
+                "start": s,
+                "end": e
+            } for s, e in segments
+        ]
 
-            save_file = os.path.join(folder_path, f"{alpha_name}_{start}_{end}.xlsx")
-            year_label = f"{start}_{end}"
-            print(f"=== Running scan for {alpha_name} {year_label} ===")
+    raise ValueError(f"Unknown mode: {mode}")
+
+if __name__ == "__main__":
+    MODE = "FULL"          # ← đổi duy nhất dòng này
+    gen = "1_1"
+    source = None
+    start_time = time.time()
+    folder_path = f"/home/ubuntu/nevir/huy/gen/results_{gen}/"
+    os.makedirs(folder_path, exist_ok=True)
+    OUTPUT_JSON = f"/home/ubuntu/nevir/huy/gen/r_{gen}.json"
+    if os.path.exists(OUTPUT_JSON):
+        with open(OUTPUT_JSON, 'r') as f:
+            upload_results = json.load(f)
+    else:
+        upload_results = {}
+    time_ranges = generate_time_ranges(MODE)
+    alpha_list = [
+        # "alpha_full_factor_062",
+        # "alpha_full_factor_095"
+        
+        # "alpha_full_factor_100",
+        # "alpha_full_factor_101"
+        
+        # "alpha_full_factor_066",
+        
+        # "alpha_full_factor_080",
+        # "alpha_full_factor_072",
+        # "alpha_full_factor_090",
+        # "alpha_full_factor_092",
+        
+        # "alpha_full_factor_093",
+        # "alpha_full_factor_098"
+        
+        # "alpha_full_factor_099",
+        
+        # "alpha_full_factor_100",
+        # "alpha_full_factor_101"
+
+        #huy
+        # 'alpha_full_factor_007',
+        # 'alpha_full_factor_031',
+        # 'alpha_full_factor_034',
+        # 'alpha_full_factor_046', #window 5-200-5
+        # 'alpha_full_factor_066', #window 10-100-10 factor 1-4-1
+        # 'alpha_full_factor_080', #window 10-100-10 factor 10-40-10
+        # 'alpha_full_factor_099', #fast 6-24-6 slow 24-84-6
+        # 'alpha_full_factor_100', #window_short 12-24-6 window_long 24-180-12 
+        # 'alpha_full_factor_101', #window_short 12-24-6 window_long 24-180-12 
+        # 'alpha_full_factor_105' ##window 5-200-5
+
+        # 'alpha_full_factor_001'
+
+
+        # 'alpha_full_factor_062_zscore_clipping'
+        # 'alpha_full_factor_095_regime_adaptive'
+        'alpha_full_factor_090_reg_adaptive'
+        
+
+    ]
+    for alpha_name in alpha_list:
+        alpha_params = {
+            
+            "window_reg": {"start": 5, "end": 100, "step": 10 },
+            "window_signal": {"start": 5, "end": 20, "step": 5},
+            # "window_delta": {"start": 1, "end": 4, "step": 1},
+            # "window": {"start": 5, "end": 200, "step": 5 },
+            # "factor": {"start": 10, "end": 40, "step": 10},
+            # "window_long": {"start": 24, "end": 180, "step": 12},
+
+            # "fast": {"start": 6, "end": 24, "step": 6},
+            # "slow": {"start": 24, "end": 84, "step": 6},
+            #  "factor": {"start": 10, "end": 40, "step": 10},
+            # "short_delta": {"start": 1, "end": 4, "step": 1},
+            # "long_delta":{"start":4, "end":7, "step":1},
+            # "window_rank":{"start":10, "end":30 , "step":10},
+        }
+
+        dic_freqs = load_dic_freqs(source)
+        DIC_ALPHAS = Domains.get_list_of_alphas()
+
+        for tr in time_ranges:
+            start = tr["start"]
+            end = tr["end"]
+            year_label = tr["label"]
+
+            save_file = os.path.join(
+                folder_path,
+                f"{alpha_name}_{year_label}.xlsx"
+            )
+
+            print(f"=== {MODE} | {alpha_name} | {year_label} ===")
 
             scan_params = ScanParams(
                 lst_alpha_names=[alpha_name],
                 alpha_params=alpha_params,
                 min_freq=10,
                 max_freq=100,
+                step_freq=1,
                 fee=0.175,
                 gen=gen
             )
@@ -857,42 +991,19 @@ if __name__ == '__main__':
                 exporter.export_to_xlsx(save_file)
                 print(f"✅ Saved results to {save_file}")
                 try:
-                    # === Upload ngay sau khi có file ===
-                    sheet_name = os.path.splitext(os.path.basename(save_file))[0]
-                    media = MediaFileUpload(save_file, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                    file_metadata = {
-                        'name': sheet_name,
-                        'mimeType': 'application/vnd.google-apps.spreadsheet',
-                        'parents': ["1ZI65HWxDFaPcXQYyJFdu47cLQtwJ_4Iw"]
-                    }
-                    service = get_drive_service()
-                    uploaded = service.files().create(
-                        body=file_metadata,
-                        media_body=media,
-                        fields='id'
-                    ).execute()
-
-                    file_id = uploaded.get('id')
-
-                    # SHARE VIEW CHO AI CŨNG XEM ĐƯỢC
-                    permission = {
-                        'type': 'anyone',
-                        'role': 'reader'
-                    }
-                    service.permissions().create(
-                        fileId=file_id,
-                        body=permission
-                    ).execute()
-                    sheet_url = f"https://docs.google.com/spreadsheets/d/{file_id}"
-                    print(f"   📤 Uploaded to Google Drive: {sheet_url}")
-
-                    # cập nhật JSON
-                    upload_results[f"{alpha_name}_{year_label}"] = sheet_url
-                    with open(OUTPUT_JSON, 'w') as f:
-                        json.dump(upload_results, f, indent=2)
-                    print(f"   🔗 Updated {OUTPUT_JSON}")
+                    upload_xlsx_to_gdrive(
+                        save_file=save_file,
+                        parent_folder_id="1ZI65HWxDFaPcXQYyJFdu47cLQtwJ_4Iw",
+                        output_json=OUTPUT_JSON,
+                        upload_results=upload_results,
+                        result_key=f"{alpha_name}_{year_label}",
+                        max_retries=3,
+                        base_delay=5
+                    )
                 except Exception as e:
-                    print(f"   ⚠️ Failed to update {OUTPUT_JSON}: {e}")
+                    print(f"   ❌ Upload failed after retries: {e}")
                     continue
             else:
                 print(f"❌ No configs passed for {year_label}")
+
+    print(f"\nAll done in {time.time() - start_time:.1f} seconds.")

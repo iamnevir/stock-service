@@ -991,6 +991,521 @@ class Resampling_Domain:
 
 
 class Alphas:
+    ##############################################################################################################################################################################################
+    @staticmethod
+    def alpha_full_factor_001(df: pd.DataFrame, window=80):
+        # 1. Tính Min và Max trong cửa sổ 48 phiên
+        # Sử dụng O.ts_min và O.ts_max
+        min_close = O.ts_min(df['close'], window)
+        max_close = O.ts_max(df['close'], window)
+        
+        # 2. Tính toán biểu thức lõi (giống công thức Stochastic %K)
+        # (close - min) / (max - min + 1e-8)
+        # Giá trị này sẽ nằm trong khoảng [0, 1]
+        stoch = (df['close'] - min_close) / (max_close - min_close + 1e-8)
+        
+        # 3. CsRank: Xếp hạng theo chiều ngang (cross-sectional rank)
+        # Lưu ý: O.rank của bạn dùng axis=1, tức là nó cần DataFrame 
+        # có các cột là các mã cổ phiếu khác nhau.
+        ranked_stoch = O.ts_rank_normalized(stoch)
+        
+        # 4. Neg: Lấy giá trị âm
+        signal = 1 - (2 * ranked_stoch)
+
+        return -signal
+    @staticmethod
+    def alpha_full_factor_004(df: pd.DataFrame, window=50):
+        # 1. Tính toán Mean Volume (Sử dụng O.ts_mean)
+        mean_vol = O.ts_mean(df['matchingVolume'], window)
+        
+        # 2. Tính tỷ lệ Khối lượng hiện tại / Khối lượng trung bình
+        vol_ratio = df['matchingVolume'] / (mean_vol + 1e-8)
+        
+        # 3. Tính Time-series Rank của Volume Ratio (Range [0, 1])
+        rank_vol = O.ts_rank_normalized(vol_ratio, window)
+        
+        # 4. Tính Returns (Tỷ suất sinh lời)
+        returns = df['close'].pct_change()
+        
+        # 5. Tính Neg(returns) và Rank nó (Range [0, 1])
+        neg_returns = -1 * returns
+        rank_neg_ret = O.ts_rank_normalized(neg_returns, window)
+        
+        # 6. Mul (Nhân hai giá trị Rank lại với nhau)
+        raw_signal = rank_vol * rank_neg_ret
+        
+        signal = (raw_signal * 2) - 1
+
+        
+        return -signal
+    
+    @staticmethod
+    def alpha_full_factor_007(df: pd.DataFrame, window=50, vol_window=10):
+
+        price_pos = (df['close'] - df['low']) / (df['high'] - df['low'] + 0.0001)
+        rank_price_pos = O.ts_rank_normalized(price_pos, window)
+ 
+        vol_ema = O.decay_linear(df['matchingVolume'], vol_window)
+        
+
+        vol_ema_delta = O.ts_delta(vol_ema, vol_window)
+        rank_vol_delta = O.ts_rank_normalized(vol_ema_delta, window)
+        
+
+        signal = rank_vol_delta - rank_price_pos
+        
+        return -signal
+    
+    @staticmethod
+    def alpha_full_factor_031(df: pd.DataFrame, short_delta=1, trend_delta=3, window_rank=12):
+        
+        delta_1 = O.ts_delta(df['close'], short_delta)
+        delta_3 = O.ts_delta(df['close'], trend_delta)
+        
+        rank_trend = O.ts_rank_normalized(delta_3, window_rank)
+        
+        raw_signal = np.where(delta_1 > 0, -1 * rank_trend, rank_trend)
+        
+        signal = raw_signal * 2 
+        signal = np.clip(signal, -1, 1)
+        signal = pd.Series(raw_signal, index=df.index)
+        
+        return -signal
+
+    @staticmethod
+    def alpha_full_factor_034(df: pd.DataFrame, window=2, factor=5, window_corr_vwap=15):
+        factor = int(factor)
+        delta_short = O.ts_delta(df['close'], window)
+        delta_long = O.ts_delta(df['close'], factor)
+        
+        rank_long = O.ts_rank_normalized(delta_long, window_corr_vwap)
+        
+        raw_signal = np.where(delta_short > 0, -1 * rank_long, rank_long)
+        signal = pd.Series(raw_signal, index=df.index)
+        
+        return -signal 
+
+    @staticmethod
+    def alpha_full_factor_046(df: pd.DataFrame, window=5):
+        returns = df['close'].pct_change()
+        
+        short_std = O.ts_std(returns, 12)
+        long_std_mean = O.ts_mean(short_std, window)
+        price_delta = O.ts_delta(df['close'], 3)
+        rev_signal = -1 * price_delta
+        
+        condition = short_std > long_std_mean
+        raw_signal = np.where(condition, rev_signal, 0)
+      
+        raw_signal_ser = pd.Series(raw_signal, index=df.index)
+        rank_final = O.ts_rank_normalized(raw_signal_ser, window)
+        
+        signal = (rank_final * 2) - 1
+        return -signal
+
+    @staticmethod
+    def alpha_full_factor_062(df: pd.DataFrame, window=70): 
+        
+        returns = df["close"].pct_change()
+        amt = df["close"] * df["matchingVolume"]
+        
+        rank_ret = O.ts_rank_normalized(returns, window=window)
+        
+        amt_std = amt.rolling(window).std()
+        
+        raw_signal =  (rank_ret / (amt_std + 1e-6))
+        
+        alpha_val = O.ts_rank_normalized(raw_signal, window=window) * 2 - 1
+
+        return pd.Series(alpha_val, index=df.index).fillna(0)
+    
+    @staticmethod
+    def alpha_full_factor_066(df: pd.DataFrame, window=48, factor=3):
+        factor = int(factor)
+        volume = df["matchingVolume"]
+        amt = df["close"] * volume
+        returns = df["close"].pct_change()
+        
+        vol_kurt = volume.rolling(window).kurt()
+        
+        amt_delta = amt.diff(factor)
+        sig_amt_accel = -1 * O.ts_rank_normalized(amt_delta, window=window)
+        
+        sig_ret_rev = -1 * (O.ts_rank_normalized(returns, window=window) * 2 - 1)
+        
+        is_vol_shock = vol_kurt > 3.0
+        raw_signal = np.where(is_vol_shock, sig_amt_accel, sig_ret_rev)
+        
+        alpha_val = pd.Series(raw_signal, index=df.index)
+        
+        return -alpha_val.fillna(0)
+
+    @staticmethod
+    def alpha_full_factor_003(df: pd.DataFrame, window=5, delta_period=1):
+        df = O.compute_vwap(df.copy(), window)
+
+        term1 = O.ts_delta(df['matchingVolume'], delta_period)
+        term2 = (df['close'] - df['vwap']) / (df['vwap'] + 1e-8)
+
+        term1_min = O.ts_min(term1, window).shift(1)
+        term1_max = O.ts_max(term1, window).shift(1)
+        term1_scaled = 2 * (term1 - term1_min) / (term1_max - term1_min + 1e-8) - 1
+
+        term2_min = O.ts_min(term2, window).shift(1)
+        term2_max = O.ts_max(term2, window).shift(1)
+        term2_scaled = 2 * (term2 - term2_min) / (term2_max - term2_min + 1e-8) - 1
+
+        alpha = (term1_scaled - term2_scaled) / 2
+
+        return -alpha.clip(-1, 1).fillna(0.0)
+
+    @staticmethod
+    def alpha_full_factor_002(df: pd.DataFrame, ma_window=5, norm_window=10):
+        ma_val = O.decay_linear(df['close'], ma_window)
+        deviation = (df['close'] - ma_val) / (ma_val + 1e-8)
+
+        d_min = O.ts_min(deviation, norm_window)
+        d_max = O.ts_max(deviation, norm_window)
+
+        scaled = 2 * (deviation - d_min) / (d_max - d_min + 1e-8) - 1
+        signal = -scaled
+
+        return -signal.fillna(0.0)
+    @staticmethod
+    def alpha_full_factor_072(df: pd.DataFrame, window=50, factor=12):
+       
+        returns = df["close"].pct_change()
+        volume = df["matchingVolume"]
+        
+        vol_kurt = volume.rolling(window).kurt()
+        
+        pv_corr = df["close"].rolling(int(factor)).corr(volume)
+        sig_corr_rev = -1 * pv_corr.fillna(0)
+        
+        sig_ret_rev = -1 * (O.ts_rank_normalized(returns, window=window) * 2 - 1)
+        is_vol_shock = vol_kurt > 3.0
+        raw_signal = np.where(is_vol_shock, sig_corr_rev, sig_ret_rev)
+        
+        alpha_val = pd.Series(raw_signal, index=df.index)
+        
+        return -alpha_val.fillna(0)
+    
+    @staticmethod
+    def alpha_full_factor_094(df: pd.DataFrame, window=12, window_corr_vwap=60, window_corr_volume=24):
+        returns = df["close"] / df["close"].shift(1) - 1
+        
+        std_12 = returns.rolling(window).std()
+        mean_std_60 = std_12.rolling(window_corr_vwap).mean()
+        
+        kurt_24 = returns.rolling(window_corr_volume).kurt()
+
+        is_active_but_stable = (std_12 > mean_std_60) & (kurt_24 < 2)
+
+        delta_val = df["close"].diff(3)
+        signal_active = -1 * (O.ts_rank_normalized(delta_val, window=24) * 2 - 1)
+        signal_normal = -1 * (O.ts_rank_normalized(returns, window=24) * 2 - 1)
+
+        alpha_val = np.where(is_active_but_stable, signal_active, signal_normal)
+
+        return pd.Series(-alpha_val, index=df.index)
+    # @staticmethod
+    # def alpha_full_factor_080(df: pd.DataFrame, window=24, factor=12):
+    #     def get_reg_metrics(series):
+    #         y = series.values
+    #         x = np.arange(len(y))
+    #         if np.any(np.isnan(y)): return 0.0, 0.0, 0.0
+    #         slope, intercept = np.polyfit(x, y, 1)
+    #         y_pred = slope * x + intercept
+    #         ss_res = np.sum((y - y_pred)**2)
+    #         ss_tot = np.sum((y - np.mean(y))**2)
+    #         r2 = 1 - (ss_res / (ss_tot + 1e-6))
+            
+    #         resi = y[-1] - y_pred[-1]
+    #         return r2, slope, resi
+
+    #     stats = df["close"].rolling(window).apply(lambda x: get_reg_metrics(x)[0], raw=False) # R2
+    #     slope_val = df["close"].rolling(window).apply(lambda x: get_reg_metrics(x)[1], raw=False) # Slope 24
+        
+    #     resi_val = df["close"].rolling(factor).apply(lambda x: get_reg_metrics(x)[2], raw=False)
+
+    #     sig_slope = -1 * (O.ts_rank_normalized(slope_val, window=window) * 2 - 1)
+
+    #     sig_resi = -1 * (O.ts_rank_normalized(resi_val, window=window) * 2 - 1)
+
+    #     alpha_val = np.where(stats > 0.7, sig_slope, sig_resi)
+
+    #     return pd.Series(-alpha_val, index=df.index)
+    @staticmethod
+    def alpha_full_factor_080(df, window=24, factor=12):
+
+        def fast_regression(series: pd.Series, window: int):
+
+            y = series.values.astype(float)
+            n = len(y)
+
+            x = np.arange(window)
+            sum_x = x.sum()
+            sum_x2 = (x**2).sum()
+
+            denom = window * sum_x2 - sum_x**2
+
+            y_series = pd.Series(y)
+
+            sum_y = y_series.rolling(window).sum()
+            sum_y2 = (y_series**2).rolling(window).sum()
+
+            xy = y_series.rolling(window).apply(
+                lambda v: np.dot(v, x), raw=True
+            )
+
+            slope = (window * xy - sum_x * sum_y) / denom
+            intercept = (sum_y - slope * sum_x) / window
+
+            y_last = y_series
+            y_pred_last = slope * (window - 1) + intercept
+
+            resi = y_last - y_pred_last
+
+            mean_y = sum_y / window
+            ss_tot = sum_y2 - window * mean_y**2
+
+            ss_res = (
+                y_series.rolling(window)
+                .apply(lambda v: np.sum((v - (slope.loc[v.index] * x + intercept.loc[v.index]))**2), raw=False)
+            )
+
+            r2 = 1 - ss_res / (ss_tot + 1e-12)
+
+            return r2, slope, resi
+        r2, slope_val, _ = fast_regression(df["close"], window)
+
+        _, _, resi_val = fast_regression(df["close"], factor)
+
+        sig_slope = -1 * (O.ts_rank_normalized(slope_val, window=window) * 2 - 1)
+
+        sig_resi = -1 * (O.ts_rank_normalized(resi_val, window=window) * 2 - 1)
+
+        alpha_val = np.where(r2 > 0.7, sig_slope, sig_resi)
+
+        return pd.Series(-alpha_val, index=df.index)
+    @staticmethod
+    def alpha_full_factor_090(df: pd.DataFrame, window=24, factor=12):
+        factor = int(factor)
+        returns = df["close"].pct_change()
+
+        def get_regression_stats(series):
+            y = series.values
+            x = np.arange(len(y))
+            if np.any(np.isnan(y)): return np.nan, np.nan
+            slope, intercept = np.polyfit(x, y, 1)
+            y_pred = slope * x + intercept
+            
+            ss_res = np.sum((y - y_pred) ** 2)
+            ss_tot = np.sum((y - np.mean(y)) ** 2)
+            r2 = 1 - (ss_res / (ss_tot + 1e-6))
+            return r2, slope
+
+        reg_stats = df["close"].rolling(window).apply(
+            lambda x: get_regression_stats(x)[0], raw=False
+        )
+        
+        slope_12 = df["close"].rolling(factor).apply(
+            lambda x: np.polyfit(np.arange(len(x)), x.values, 1)[0], raw=False
+        )
+        signal_trend = -1 * (O.ts_rank_normalized(slope_12, window=window) * 2 - 1)
+
+        signal_noise = -1 * (O.ts_rank_normalized(returns, window=factor) * 2 - 1)
+
+        alpha_val = np.where(reg_stats > 0.75, signal_trend, signal_noise)
+
+        return pd.Series(-alpha_val, index=df.index)
+    @staticmethod
+    def alpha_full_factor_092(df: pd.DataFrame, window=6, factor=48):
+        returns = df["close"] / df["close"].shift(1) - 1
+        
+        amt = df.get("amt", df["close"] * df["matchingVolume"])
+        
+        efficiency = returns / (amt + 1e-6)
+        
+        smoothed_eff = efficiency.ewm(span=window, adjust=False).mean()
+       
+        rank_val = O.ts_rank_normalized(smoothed_eff, window=factor)
+        
+        alpha_val = (rank_val * 2 - 1)
+
+        return pd.Series(alpha_val, index=df.index)
+    @staticmethod
+    def alpha_full_factor_093(df: pd.DataFrame, window=24, factor=3):
+        factor = int(factor)
+        returns = df["close"] / df["close"].shift(1) - 1
+        amt = df.get("amt", df["close"] * df["matchingVolume"])
+        efficiency = returns / (amt + 1e-6)
+        
+        eff_velocity = efficiency.diff(factor)
+        
+        rank_val = O.ts_rank_normalized(eff_velocity, window=window)
+        
+        alpha_val = (rank_val * 2 - 1)
+
+        return pd.Series(alpha_val, index=df.index)
+    @staticmethod
+    def alpha_full_factor_095(df: pd.DataFrame, window=48):
+        returns = df["close"] / df["close"].shift(1) - 1
+        
+        skew_val = returns.rolling(window).skew()
+        kurt_val = returns.rolling(window).kurt()
+
+        is_extreme_regime = (np.abs(skew_val) > 1.5) | (kurt_val > 4.0)
+
+        def get_residual(series):
+            y = series.values
+            x = np.arange(len(y))
+            if np.any(np.isnan(y)): return np.nan
+            slope, intercept = np.polyfit(x, y, 1)
+            y_pred = slope * (len(y) - 1) + intercept
+            return y[-1] - y_pred
+
+        resi_val = df["close"].rolling(6).apply(get_residual, raw=False)
+        signal_extreme = -1 * (O.ts_rank_normalized(resi_val, window=window) * 2 - 1)
+
+        signal_normal = -1 * (O.ts_rank_normalized(returns, window=window) * 2 - 1)
+
+        alpha_val = np.where(is_extreme_regime, signal_extreme, signal_normal)
+
+        return pd.Series(-alpha_val, index=df.index)
+    @staticmethod
+    def alpha_full_factor_098(df: pd.DataFrame, window=6, factor=2):
+        returns = df["close"] / df["close"].shift(1) - 1
+        
+        amt = df.get("amt", df["close"] * df["matchingVolume"])
+        
+        efficiency = returns / (amt + 1e-6)
+        
+        smoothed_eff = O.ts_weighted_mean(efficiency, window=window)
+        
+        velocity_eff = O.ts_delta(smoothed_eff, period=int(factor))
+        
+        rank_val = O.ts_rank_normalized(velocity_eff, window=24)
+        
+        alpha_val = (rank_val * 2 - 1)
+
+        return pd.Series(alpha_val, index=df.index)
+    @staticmethod
+    def alpha_full_factor_099(df: pd.DataFrame, fast=6, slow=24):
+        returns = df["close"] / df["close"].shift(1) - 1
+        
+        amt = df.get("amt", df["close"] * df["matchingVolume"])
+        
+        efficiency = returns / (amt + 1e-6)
+        
+        ema_fast = efficiency.ewm(span=fast, adjust=False).mean()
+        ema_slow = efficiency.ewm(span=slow, adjust=False).mean()
+        
+        raw_diff = ema_fast - ema_slow
+        
+        normalized_signal = O.ts_rank_normalized(raw_diff, window=24)
+        normalized_signal = (normalized_signal * 2) - 1
+
+        return pd.Series(normalized_signal, index=df.index)
+    @staticmethod
+    def alpha_full_factor_100(df: pd.DataFrame, window=24, factor=12):
+        factor = int(factor)
+        def get_residual(series):
+            y = series.values
+            x = np.arange(len(y))
+            if np.any(np.isnan(y)): return np.nan
+            # Hồi quy tuyến tính: y = ax + b
+            slope, intercept = np.polyfit(x, y, 1)
+            y_pred = slope * (len(y) - 1) + intercept
+            return y[-1] - y_pred
+
+        resi_1 = df["close"].rolling(window).apply(get_residual, raw=False)
+
+        delta_resi = resi_1.diff(3)
+
+        resi_2 = delta_resi.rolling(factor).apply(get_residual, raw=False)
+
+        final_alpha = O.ts_rank_normalized(resi_2, window=factor)
+        final_alpha = (final_alpha * 2) - 1
+
+        return final_alpha
+    @staticmethod
+    def alpha_full_factor_101(df: pd.DataFrame, window=24, factor=12):
+        factor = int(factor)
+        returns = df["close"] / df["close"].shift(1) - 1
+        skew_val = returns.rolling(window).skew()
+
+        med_ret = returns.rolling(window).median()
+        std_ret = returns.rolling(window).std()
+        
+        robust_zscore = (returns - med_ret) / (std_ret + 1e-6)
+        signal_extreme = O.ts_rank_normalized(robust_zscore, window=factor)
+
+        def get_residual(series):
+            y = series.values
+            x = np.arange(len(y))
+            if np.any(np.isnan(y)): return np.nan
+            # Hồi quy tuyến tính nhanh
+            slope, intercept = np.polyfit(x, y, 1)
+            y_pred = slope * (len(y) - 1) + intercept
+            return y[-1] - y_pred
+
+        close_resi = df["close"].rolling(factor).apply(get_residual, raw=False)
+        signal_stable = O.ts_rank_normalized(close_resi, window=factor)
+        raw_signal = np.where(np.abs(skew_val) > 1.0, signal_extreme, signal_stable)
+        
+        normalized_signal = (raw_signal * 2) - 1
+
+        return pd.Series(normalized_signal, index=df.index)
+
+    @staticmethod
+    def alpha_full_factor_105(df: pd.DataFrame, window=50):
+        returns = df["close"] / df["close"].shift(1) - 1
+        skew_val = returns.rolling(window).skew()
+
+        def get_residual(series):
+            y = series.values
+            x = np.arange(len(y))
+            if np.any(np.isnan(y)): return np.nan
+            slope, intercept = np.polyfit(x, y, 1)
+            y_pred = slope * (len(y) - 1) + intercept
+            return y[-1] - y_pred
+
+        open_resi = df["open"].rolling(window).apply(get_residual, raw=False)
+        sign_resi = np.sign(open_resi)
+
+        signed_power_ret = np.sign(returns) * np.power(np.abs(returns), 0.6)
+        signal_skew_high = O.ts_rank_normalized(sign_resi, window)
+        signal_normal = O.ts_rank_normalized(signed_power_ret, window)
+        raw_signal = np.where(skew_val > 0.4, signal_skew_high, signal_normal)
+        
+        normalized_signal = ((raw_signal * 2) - 1)
+
+        return pd.Series(normalized_signal, index=df.index)
+
+
+    @staticmethod
+    def alpha_full_factor_062_zscore_clipping(df: pd.DataFrame, window=70):
+        # 1. Dùng Log Return thay vì Pct Change để giảm nhiễu cực đoan
+        log_ret = np.log(df["close"] / df["close"].shift(1))
+        
+        # 2. Thay vì chia cho amt_std, ta chia cho Volatility của chính nó
+        # Đây là logic của Sharpe Ratio: Lợi nhuận / Rủi ro
+        rolling_vol = log_ret.rolling(window).std() + 1e-6
+        risk_adj_ret = log_ret / rolling_vol
+        
+        # 3. Làm mượt Amount bằng Decay Linear trước khi tính biến động
+        amt = df["close"] * df["matchingVolume"]
+        smooth_amt_std = O.decay_linear(amt, window).rolling(window).std()
+        
+        # 4. Kết hợp: Momentum ổn định / Biến động thanh khoản thấp
+        raw_signal = risk_adj_ret / (np.log1p(smooth_amt_std) + 1e-6)
+        
+        # 5. Quan trọng: Dùng Z-score và Clip để loại bỏ Outliers (kẻ thù của Sharpe)
+        z_signal = O.zscore(raw_signal, window=window).clip(-3, 3)
+        
+        # 6. Ép về [-1, 1]
+        return np.tanh(z_signal)
     #####
     @staticmethod
     def alpha_MFI(df,buy_threshold ,sell_threshold, over_sold, over_bought, time_period ):
@@ -4205,12 +4720,14 @@ class Domains:
             "alpha_101_rank_combo","alpha_101_overnight_confirm","alpha_101_powered","alpha_101_day_of_week_filter",
             "alpha_new_003_v1","alpha_new_003_v2","alpha_new_003_v3","alpha_new_003_v4","alpha_new_003_v5",
             "alpha_new_005_up1","alpha_new_008_v1","alpha_new_008_v2","alpha_new_008_v3","alpha_new_008_v4","alpha_new_008_v5",
+            'alpha_full_factor_062_zscore_clipping' 
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
         new_alpha_list = [f"alpha_new_{str(name).rjust(3, '0')}" for name in list(range(1, 101))]
+        alpha_full_factor = [f"alpha_full_factor_{str(i).rjust(3, '0')}" for i in range(1, 110)]
         
-        for alpha_name in base_list + custom_c_list + new_alpha_list:
+        for alpha_name in base_list + custom_c_list + new_alpha_list + alpha_full_factor:
             if isinstance(alpha_name, int):
                 alpha_name = str(alpha_name).rjust(3, '0')
             if not alpha_name.startswith('alpha_'):
