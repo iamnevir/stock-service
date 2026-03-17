@@ -1506,6 +1506,26 @@ class Alphas:
         
         # 6. Ép về [-1, 1]
         return np.tanh(z_signal)
+    @staticmethod
+    def alpha_full_factor_095_regime_adaptive(df: pd.DataFrame, window=48):
+        returns = df["close"].pct_change()
+        
+        skew_val = returns.rolling(window).skew()
+        kurt_val = returns.rolling(window).kurt()
+
+        is_extreme_regime = (np.abs(skew_val) > 1.5) | (kurt_val > 4.0)
+
+        signal_normal = O.zscore(returns, window)
+
+        short_trend = O.ts_mean(df["close"], window=6)
+        residuals = (df["close"] - short_trend) / short_trend
+        signal_extreme = O.zscore(residuals, window)
+
+        raw_alpha = np.where(is_extreme_regime, signal_extreme, signal_normal)
+
+        alpha_val = np.tanh(raw_alpha / 2.0) 
+
+        return pd.Series(alpha_val, index=df.index).fillna(0)
     #####
     @staticmethod
     def alpha_MFI(df,buy_threshold ,sell_threshold, over_sold, over_bought, time_period ):
@@ -4720,7 +4740,7 @@ class Domains:
             "alpha_101_rank_combo","alpha_101_overnight_confirm","alpha_101_powered","alpha_101_day_of_week_filter",
             "alpha_new_003_v1","alpha_new_003_v2","alpha_new_003_v3","alpha_new_003_v4","alpha_new_003_v5",
             "alpha_new_005_up1","alpha_new_008_v1","alpha_new_008_v2","alpha_new_008_v3","alpha_new_008_v4","alpha_new_008_v5",
-            'alpha_full_factor_062_zscore_clipping' 
+            'alpha_full_factor_062_zscore_clipping',"alpha_full_factor_095_regime_adaptive"
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
