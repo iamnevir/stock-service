@@ -1526,29 +1526,50 @@ class Alphas:
         alpha_val = np.tanh(raw_alpha / 2.0) 
 
         return pd.Series(alpha_val, index=df.index).fillna(0)
-    
 
     @staticmethod
-    def alpha_full_factor_046_vol_weighted(df: pd.DataFrame, window=50):
-        returns = df['close'].pct_change()
+    def alpha_full_factor_066_liq_accel(df: pd.DataFrame, window=48, factor=3):
+        factor = int(factor)
+        volume = df["matchingVolume"]
+        amt = df["close"] * volume
+        log_amt = np.log1p(amt)
+        returns = df["close"].pct_change()
+        vol_kurt = volume.rolling(window).kurt()
+        is_vol_shock = vol_kurt > 3.0
+        amt_delta = log_amt.diff(factor)
+        sig_amt_accel = -1 * O.zscore(amt_delta, window=window)
         
-        short_std = returns.rolling(5).std() 
-        long_std_mean = short_std.rolling(window).mean()
+        sig_ret_rev = -1 * np.tanh(O.zscore(returns, window=window) / 2.0)
         
-        vol_ratio = (short_std / (long_std_mean + 1e-6))
+        raw_signal = np.where(is_vol_shock, sig_amt_accel, sig_ret_rev)
         
-        price_delta = df['close'].diff(3)
+        alpha_val = -1 * np.tanh(pd.Series(raw_signal, index=df.index).fillna(0))
         
-        roll_min = price_delta.rolling(window).min()
-        roll_max = price_delta.rolling(window).max()
-        norm_delta = 2 * (price_delta - roll_min) / (roll_max - roll_min + 1e-8) - 1
+        return alpha_val
+    
+    @staticmethod
+    def alpha_full_factor_090_reg_adaptive(df: pd.DataFrame, window=24, factor=12):
+        factor = int(factor)
+        returns = df["close"].pct_change()
+        log_price = np.log(df["close"])
         
-        raw_signal = -1 * norm_delta * vol_ratio
-        
-        signal = np.clip(raw_signal, -1, 1)
-        
-        return -pd.Series(signal, index=df.index).fillna(0)
+        rolling_time = pd.Series(np.arange(len(df)), index=df.index)
+        r_val = log_price.rolling(window).corr(rolling_time)
+        r2 = r_val ** 2
 
+        std_y = log_price.rolling(factor).std()
+        std_x = np.std(np.arange(factor))
+        slope = r_val * (std_y / std_x)
+
+        signal_trend = -1 * np.tanh(O.zscore(slope, window) / 2.0)
+        
+        signal_noise = -1 * np.tanh(O.zscore(returns, factor) / 2.0)
+
+        raw_alpha = np.where(r2 > 0.75, signal_trend, signal_noise)
+
+        alpha_val = -1 * pd.Series(raw_alpha, index=df.index).fillna(0)
+
+        return alpha_val
     #####
     @staticmethod
     def alpha_MFI(df,buy_threshold ,sell_threshold, over_sold, over_bought, time_period ):
@@ -4763,7 +4784,8 @@ class Domains:
             "alpha_101_rank_combo","alpha_101_overnight_confirm","alpha_101_powered","alpha_101_day_of_week_filter",
             "alpha_new_003_v1","alpha_new_003_v2","alpha_new_003_v3","alpha_new_003_v4","alpha_new_003_v5",
             "alpha_new_005_up1","alpha_new_008_v1","alpha_new_008_v2","alpha_new_008_v3","alpha_new_008_v4","alpha_new_008_v5",
-            'alpha_full_factor_062_zscore_clipping',"alpha_full_factor_095_regime_adaptive", 'alpha_full_factor_046_vol_weighted'
+            'alpha_full_factor_062_zscore_clipping',"alpha_full_factor_095_regime_adaptive", 'alpha_full_factor_066_liq_accel',
+            'alpha_full_factor_090_reg_adaptive'
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
