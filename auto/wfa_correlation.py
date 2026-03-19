@@ -3,6 +3,7 @@ import multiprocessing as mp
 import sys
 import  time
 import traceback
+from gen.settings import parse_alpha_config
 import numpy as np
 import pandas as pd
 from pymongo import MongoClient
@@ -15,83 +16,7 @@ from gen.core import Simulator
 from pymongo.errors import BulkWriteError
 
 def run_single_backtest(config, alpha_name,fee, dic_freqs, DIC_ALPHAS, gen=None, start=None, end=None, source=None, overnight=False,cut_time=None, N=None):
-    gen_params = {}
-    if gen == "1_1":
-        freq, threshold, halflife, *rest = config.split("_")
-        freq, threshold, halflife = int(freq), float(threshold), float(halflife)
-        factor = float(rest[1]) if len(rest) > 1 else None
-        window = int(rest[0]) if rest else None
-        gen_params = {
-            "threshold": threshold,
-            "halflife": halflife
-        }
-        params = {}
-        if factor is not None:
-            params["factor"] = factor
-        if window is not None:
-            params["window"] = window
-    elif gen == "1_2":
-        if alpha_name == "alpha_075":
-            freq, upper, lower, *rest = config.split("_")
-            freq, upper, lower = int(freq), float(upper), float(lower)
-            params = {}
-            window = int(rest[0]) if rest else None
-            window_corr_vwap = float(rest[1]) if len(rest) >= 2 else None
-            window_corr_volume = float(rest[2]) if len(rest) >= 3 else None
-            if window is not None:
-                params["window"] = window
-            if window_corr_vwap is not None:
-                params["window_corr_vwap"] = window_corr_vwap
-            if window_corr_volume is not None:
-                params["window_corr_volume"] = window_corr_volume
-            gen_params = {
-                "upper": upper,
-                "lower": lower
-            }
-        freq, upper, lower, *rest = config.split("_")
-        freq, upper, lower = int(freq), float(upper), float(lower)
-        params = {}
-        window = int(rest[0]) if rest else None
-        factor = float(rest[1]) if len(rest) >= 2 else None
-        if window is not None:
-            params["window"] = window
-        if factor is not None:
-            params["factor"] = factor
-        gen_params = {
-            "upper": upper,
-            "lower": lower
-        }
-    elif gen == "1_3":
-        freq, score, entry, exit, *rest = config.split("_")
-        freq, score, entry, exit = int(freq), int(score), float(entry), float(exit)
-        params = {}
-        window = int(rest[0]) if rest else None
-        factor = float(rest[1]) if len(rest) >= 2 else None
-        if window is not None:
-            params["window"] = window
-        if factor is not None:
-            params["factor"] = factor
-        gen_params = {
-            "score":score,
-            "entry":entry,
-            "exit":exit
-        }
-    
-    elif gen == "1_4":
-        freq, entry, exit, smooth, *rest = config.split("_")
-        freq, entry, exit, smooth = int(freq), float(entry), float(exit), float(smooth)
-        params = {}
-        window = int(rest[0]) if rest else None
-        factor = float(rest[0]) if rest else None
-        if window is not None:
-            params["window"] = window
-        if factor is not None:
-            params["factor"] = factor
-        gen_params = {
-            "entry":entry,
-            "exit":exit,
-            "smooth":smooth
-        }
+    freq, gen_params, params = parse_alpha_config(gen, config, alpha_name)
         
     bt = Simulator(
         alpha_name=alpha_name,

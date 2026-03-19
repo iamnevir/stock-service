@@ -533,7 +533,7 @@ def load_dic_freqs(source):
     elif source == "ha_confirm":
         fn = "/home/ubuntu/nevir/gen/dic_freqs_ha_confirm.pickle"
     else:
-        fn = "/home/ubuntu/nevir/huy/gen/alpha.pkl"
+        fn = "/home/ubuntu/nevir/gen/alpha.pkl"
     with open(fn, 'rb') as file:
         DIC_FREQS = pickle.load(file)
 
@@ -924,17 +924,17 @@ if __name__ == "__main__":
 
         # 'alpha_full_factor_062_zscore_clipping'
         # 'alpha_full_factor_095_regime_adaptive'
-        'alpha_full_factor_090_reg_adaptive'
+        'alpha_full_factor_046_vol_weighted' 
         
 
     ]
     for alpha_name in alpha_list:
         alpha_params = {
             
-            "window_reg": {"start": 5, "end": 100, "step": 10 },
-            "window_signal": {"start": 5, "end": 20, "step": 5},
+            # "window_reg": {"start": 5, "end": 100, "step": 10 },
+            # "window_signal": {"start": 5, "end": 20, "step": 5},
             # "window_delta": {"start": 1, "end": 4, "step": 1},
-            # "window": {"start": 5, "end": 200, "step": 5 },
+            "window": {"start": 5, "end": 200, "step": 5 },
             # "factor": {"start": 10, "end": 40, "step": 10},
             # "window_long": {"start": 24, "end": 180, "step": 12},
 

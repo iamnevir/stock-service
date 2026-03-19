@@ -1526,6 +1526,29 @@ class Alphas:
         alpha_val = np.tanh(raw_alpha / 2.0) 
 
         return pd.Series(alpha_val, index=df.index).fillna(0)
+    
+
+    @staticmethod
+    def alpha_full_factor_046_vol_weighted(df: pd.DataFrame, window=50):
+        returns = df['close'].pct_change()
+        
+        short_std = returns.rolling(5).std() 
+        long_std_mean = short_std.rolling(window).mean()
+        
+        vol_ratio = (short_std / (long_std_mean + 1e-6))
+        
+        price_delta = df['close'].diff(3)
+        
+        roll_min = price_delta.rolling(window).min()
+        roll_max = price_delta.rolling(window).max()
+        norm_delta = 2 * (price_delta - roll_min) / (roll_max - roll_min + 1e-8) - 1
+        
+        raw_signal = -1 * norm_delta * vol_ratio
+        
+        signal = np.clip(raw_signal, -1, 1)
+        
+        return -pd.Series(signal, index=df.index).fillna(0)
+
     #####
     @staticmethod
     def alpha_MFI(df,buy_threshold ,sell_threshold, over_sold, over_bought, time_period ):
@@ -4740,7 +4763,7 @@ class Domains:
             "alpha_101_rank_combo","alpha_101_overnight_confirm","alpha_101_powered","alpha_101_day_of_week_filter",
             "alpha_new_003_v1","alpha_new_003_v2","alpha_new_003_v3","alpha_new_003_v4","alpha_new_003_v5",
             "alpha_new_005_up1","alpha_new_008_v1","alpha_new_008_v2","alpha_new_008_v3","alpha_new_008_v4","alpha_new_008_v5",
-            'alpha_full_factor_062_zscore_clipping',"alpha_full_factor_095_regime_adaptive"
+            'alpha_full_factor_062_zscore_clipping',"alpha_full_factor_095_regime_adaptive", 'alpha_full_factor_046_vol_weighted'
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]

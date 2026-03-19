@@ -2,63 +2,14 @@ from datetime import datetime
 import multiprocessing
 from math import erf, sqrt
 import pandas as pd
+from gen.settings import parse_alpha_config
 import numpy as np
 from scipy.stats import skew, kurtosis
 from gen.core import Simulator as SimulatorGen
 def worker_compute_process(index, config, gen, alpha_name, fee, dic_freqs, df_tick, stop_loss, start, end, source, overnight, DIC_ALPHAS, return_dict, cut_time, N):
 
     # ====== PARSE CONFIG (logic giữ nguyên 100%) ======
-    gen_params = {}
-    parts = config.split("_")
-    params = {}
-
-    if gen == "1_3":
-        freq, score, entry, exit, *rest = parts
-        freq, score, entry, exit = int(freq), int(score), float(entry), float(exit)
-        if len(rest) >= 1: params["window"] = int(rest[0])
-        if len(rest) >= 2: params["factor"] = float(rest[1])
-        gen_params["score"] = score
-        gen_params["entry"] = entry
-        gen_params["exit"] = exit
-
-    elif gen == "1_2":
-        freq, upper, lower, *rest = parts
-        freq, upper, lower = int(freq), float(upper), float(lower)
-        if len(rest) >= 1: params["window"] = int(rest[0])
-        if len(rest) >= 2: params["factor"] = float(rest[1])
-        gen_params["upper"] = upper
-        gen_params["lower"] = lower
-
-    elif gen == "1_1":
-        freq, threshold, halflife, *rest = parts
-        freq, threshold, halflife = int(freq), float(threshold), float(halflife)
-        if len(rest) >= 1: params["window"] = int(rest[0])
-        if len(rest) >= 2: params["factor"] = float(rest[1])
-        gen_params["threshold"] = threshold
-        gen_params["halflife"] = halflife
-
-    elif gen == "1_4":
-        freq, inertia, threshold, *rest = parts
-        freq, inertia, threshold = int(freq), float(inertia), float(threshold)
-        if len(rest) >= 1: params["window"] = int(rest[0])
-        if len(rest) >= 2: params["factor"] = float(rest[1])
-        gen_params["inertia"] = inertia
-        gen_params["threshold"] = threshold
-
-    elif gen == "1_5":
-        freq, velocity, *rest = parts
-        freq, velocity = int(freq), float(velocity)
-        if len(rest) >= 1: params["window"] = int(rest[0])
-        if len(rest) >= 2: params["factor"] = float(rest[1])
-        gen_params["velocity"] = velocity
-
-    elif gen == "1_6":
-        freq, velocity, threshold, *rest = parts
-        freq, velocity, threshold = int(freq), float(velocity), float(threshold)
-        if len(rest) >= 1: params["window"] = int(rest[0])
-        if len(rest) >= 2: params["factor"] = float(rest[1])
-        gen_params["velocity"] = velocity
-        gen_params["threshold"] = threshold
+    freq, gen_params, params = parse_alpha_config(gen, config, alpha_name)
     
     # ====== RUN SIMULATORGEN ======
     bt = SimulatorGen(
