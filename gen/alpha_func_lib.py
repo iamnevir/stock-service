@@ -1040,15 +1040,15 @@ class Alphas:
         return -signal
     
     @staticmethod
-    def alpha_full_factor_007(df: pd.DataFrame, window=50, vol_window=10):
-
+    def alpha_full_factor_007(df: pd.DataFrame, window=50, factor=10):
+        factor = int(factor)
         price_pos = (df['close'] - df['low']) / (df['high'] - df['low'] + 0.0001)
         rank_price_pos = O.ts_rank_normalized(price_pos, window)
  
-        vol_ema = O.decay_linear(df['matchingVolume'], vol_window)
+        vol_ema = O.decay_linear(df['matchingVolume'], factor)
         
 
-        vol_ema_delta = O.ts_delta(vol_ema, vol_window)
+        vol_ema_delta = O.ts_delta(vol_ema, factor)
         rank_vol_delta = O.ts_rank_normalized(vol_ema_delta, window)
         
 
