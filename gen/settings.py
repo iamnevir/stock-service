@@ -14,6 +14,11 @@ ALPHA_PARAM_SCHEMAS = {
         ("factor", float),
         ("window_corr_vwap", int),
     ],
+    "alpha_full_factor_099_eff_macd":[
+        ("fast", int),
+        ("slow", int),
+        ("window_norm", int),
+    ]
 }
 GEN_SCHEMAS = {
     "1_1": {

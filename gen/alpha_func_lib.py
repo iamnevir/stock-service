@@ -1570,6 +1570,27 @@ class Alphas:
         alpha_val = -1 * pd.Series(raw_alpha, index=df.index).fillna(0)
 
         return alpha_val
+
+    @staticmethod
+    def alpha_full_factor_099_eff_macd(df: pd.DataFrame, fast=6, slow=12, window_norm=15):
+        returns = np.log(df["close"] / df["close"].shift(1))
+        
+        amt = df.get("amt", df["close"] * df["matchingVolume"])
+        log_amt = np.log1p(amt)
+        
+        efficiency = returns / (log_amt + 1e-6)
+        
+        ema_f = efficiency.ewm(span=fast, adjust=False).mean()
+        ema_s = efficiency.ewm(span=slow, adjust=False).mean()
+        
+        raw_diff = ema_f - ema_s
+        
+        roll_min = raw_diff.rolling(window_norm).min()
+        roll_max = raw_diff.rolling(window_norm).max()
+        
+        norm_diff = 2 * (raw_diff - roll_min) / (roll_max - roll_min + 1e-8) - 1
+        
+        return pd.Series(norm_diff, index=df.index).fillna(0)
     #####
     @staticmethod
     def alpha_MFI(df,buy_threshold ,sell_threshold, over_sold, over_bought, time_period ):
@@ -4785,7 +4806,7 @@ class Domains:
             "alpha_new_003_v1","alpha_new_003_v2","alpha_new_003_v3","alpha_new_003_v4","alpha_new_003_v5",
             "alpha_new_005_up1","alpha_new_008_v1","alpha_new_008_v2","alpha_new_008_v3","alpha_new_008_v4","alpha_new_008_v5",
             'alpha_full_factor_062_zscore_clipping',"alpha_full_factor_095_regime_adaptive", 'alpha_full_factor_066_liq_accel',
-            'alpha_full_factor_090_reg_adaptive'
+            'alpha_full_factor_090_reg_adaptive', 'alpha_full_factor_099_eff_macd'
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
