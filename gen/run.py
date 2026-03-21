@@ -876,9 +876,9 @@ if __name__ == "__main__":
     gen = "1_1"
     source = None
     start_time = time.time()
-    folder_path = f"/home/ubuntu/nevir/huy/gen/results_{gen}/"
+    folder_path = f"/home/ubuntu/nevir/gen/results_{gen}/"
     os.makedirs(folder_path, exist_ok=True)
-    OUTPUT_JSON = f"/home/ubuntu/nevir/huy/gen/r_{gen}.json"
+    OUTPUT_JSON = f"/home/ubuntu/nevir/gen/r_{gen}.json"
     if os.path.exists(OUTPUT_JSON):
         with open(OUTPUT_JSON, 'r') as f:
             upload_results = json.load(f)
