@@ -1572,7 +1572,7 @@ class Alphas:
         return alpha_val
 
     @staticmethod
-    def alpha_full_factor_099_eff_macd(df: pd.DataFrame, fast=6, slow=12, window_norm=15):
+    def alpha_full_factor_099_eff_macd(df: pd.DataFrame, window=6, factor=12, window_norm=15):
         returns = np.log(df["close"] / df["close"].shift(1))
         
         amt = df.get("amt", df["close"] * df["matchingVolume"])
@@ -1580,8 +1580,8 @@ class Alphas:
         
         efficiency = returns / (log_amt + 1e-6)
         
-        ema_f = efficiency.ewm(span=fast, adjust=False).mean()
-        ema_s = efficiency.ewm(span=slow, adjust=False).mean()
+        ema_f = efficiency.ewm(span=window, adjust=False).mean()
+        ema_s = efficiency.ewm(span=factor, adjust=False).mean()
         
         raw_diff = ema_f - ema_s
         

@@ -15,8 +15,8 @@ ALPHA_PARAM_SCHEMAS = {
         ("window_corr_vwap", int),
     ],
     "alpha_full_factor_099_eff_macd":[
-        ("fast", int),
-        ("slow", int),
+        ("window", int),
+        ("factor", int),
         ("window_norm", int),
     ]
 }
