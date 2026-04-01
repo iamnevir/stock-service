@@ -22,7 +22,7 @@ def get_next_wfa(busd):
         if correlation.get("status") != "done":
             return idx, fa
 
-        if fa.get("report", {}).get("tvr") is None and fa.get("os",{}).get("end") <= 20260101:
+        if fa.get("report", {}).get("tvr") is None and fa.get("os",{}).get("end") <= 20260401:
             return idx, fa
 
     return None, None

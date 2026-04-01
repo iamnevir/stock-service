@@ -1591,6 +1591,67 @@ class Alphas:
         norm_diff = 2 * (raw_diff - roll_min) / (roll_max - roll_min + 1e-8) - 1
         
         return pd.Series(norm_diff, index=df.index).fillna(0)
+
+
+    @staticmethod
+    def alpha_full_factor_046_dynamic_reversion(df: pd.DataFrame, window=50):
+        
+        candle_range = df['high'] - df['low']
+        avg_range = candle_range.rolling(window).mean() + 1e-8
+        vol_impact = candle_range / avg_range
+        
+        price_delta = df['close'].diff(3)
+        delta_mean = price_delta.rolling(window).mean()
+        delta_std = price_delta.rolling(window).std() + 1e-8
+        price_z = (price_delta - delta_mean) / delta_std
+        
+       
+        close_pos = (df['close'] - df['low']) / (candle_range + 1e-8) 
+        rejection_force = np.where(price_z > 0, close_pos, 1 - close_pos)
+        
+        raw_signal = price_z * vol_impact * rejection_force
+        
+        signal = -np.tanh(raw_signal * 0.5)
+        
+        return -pd.Series(signal, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_full_factor_007_volume_breakout_trend(df: pd.DataFrame, window=12):
+        # Volume Breakout Trend
+        returns = df['close'] / df['close'].shift(1) - 1
+        ema_vol = df['matchingVolume'].ewm(span=window, adjust=False).mean()
+        vol_breakout = df['matchingVolume'] / (ema_vol + 1e-8)
+        
+        # strong volume -> trend follow
+        signal = returns * vol_breakout
+        
+        # Z-score normalization to [-1, 1]
+        z_score = (signal - signal.rolling(window).mean()) / (signal.rolling(window).std() + 1e-8)
+        return np.tanh(z_score).fillna(0)
+    
+    @staticmethod
+    def alpha_full_factor_085_rank_vol_efficiency(df: pd.DataFrame, window=12):
+        # Time-series rank normalized Amount Efficiency
+        returns = df['close'] / df['close'].shift(1) - 1
+        amt = df['close'] * df['matchingVolume']
+        
+        efficiency = returns / (amt.rolling(window).mean() + 1e-8)
+        
+        signal = O.ts_rank_normalized(efficiency, window=window) * 2 - 1
+
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_full_factor_b08_signed_power_compress(df: pd.DataFrame, window=24):
+        # BREAKTHROUGH: SignedPower Compressed Efficiency
+        # SignedPower(Returns / Std(Amount), 0.4) — nén cực trị, khuếch đại tín hiệu nhỏ
+        returns = df['close'].pct_change()
+        amt = df['matchingVolume'] * df['close']
+        amt_std = amt.rolling(window).std()
+        eff = returns / (amt_std + 1e-6)
+        compressed = np.sign(eff) * np.abs(eff) ** 0.4
+        sig = -O.ts_rank_normalized(compressed, window*4)
+        return -np.tanh(O.zscore(sig, window=window*4).fillna(0) / 2.0)
     #####
     @staticmethod
     def alpha_MFI(df,buy_threshold ,sell_threshold, over_sold, over_bought, time_period ):
@@ -4773,6 +4834,3908 @@ class Alphas:
         # plt.show()
         return signal
 
+    @staticmethod
+    def alpha_popbo_001(df: pd.DataFrame, window=10):
+        """ (-1 * CORR(RANK(DELTA(LOG(VOLUME), 1)), RANK(((CLOSE - OPEN) / OPEN)), 6)) """
+        # volume = df.get('matchingVolume', df.get('volume', df['close']*0 + 1))
+        volume = df['matchingVolume']
+        
+        # 1. Delta Log Volume
+        log_vol = np.log1p(volume)
+        delta_log_vol = log_vol.diff(1)
+        rank_vol = delta_log_vol.rolling(window).rank(pct=True)
+        
+        # 2. Price change percentage
+        price_diff = (df['close'] - df['open']) / (df['open'] + 1e-8)
+        rank_price = price_diff.rolling(window).rank(pct=True)
+        
+        # 3. Correlation between ranked volume and ranked price
+        correlation = rank_vol.rolling(5).corr(rank_price).fillna(0)
+        
+        # 4. Final signal 
+        signal = correlation
+        
+        return signal
+
+
+    @staticmethod
+    def alpha_popbo_002(df: pd.DataFrame, window=50):
+        """ -1 * delta((((close-low)-(high-close))/(high-low)), 1) """
+        # 1. Calculate price location within high-low range
+        range_diff = df['high'] - df['low'] + 1e-8
+        location = ((df['close'] - df['low']) - (df['high'] - df['close'])) / range_diff
+        # 2. Delta of location
+        delta_location = location.diff(1)
+        # 3. Final raw signal
+        raw_signal = -1 * delta_location
+        # 4. Normalize to [-1, 1] using ts_rank
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_003(df: pd.DataFrame, window = 1 ,factor=20):
+        """ SUM((CLOSE=DELAY(CLOSE,1)?0:CLOSE-(CLOSE>DELAY(CLOSE,1)?MIN(LOW,DELAY(CLOSE,1))
+        :MAX(HIGH,DELAY(CLOSE,1)))),6) """
+        factor = int(factor)
+        prev_close = df['close'].shift(1)
+        
+        # 1. Determine baseline
+        min_low_prev = np.minimum(df['low'], prev_close)
+        max_high_prev = np.maximum(df['high'], prev_close)
+        
+        # 2. Conditional differences
+        cond_up = df['close'] > prev_close
+        cond_down = df['close'] < prev_close
+        
+        part = pd.Series(0.0, index=df.index)
+        part[cond_up] = df['close'] - min_low_prev
+        part[cond_down] = df['close'] - max_high_prev
+        
+        # 3. Rolling Sum
+        sum_part = part.rolling(window).sum()
+        
+        # 4. Normalize
+        ranked_signal = sum_part.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_004(df: pd.DataFrame):
+        """ ((((SUM(CLOSE, 8) / 8) + STD(CLOSE, 8)) < (SUM(CLOSE, 2) / 2)) ? (-1 * 1) : ... """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Moving averages and std
+        sma8 = df['close'].rolling(8).mean()
+        std8 = df['close'].rolling(8).std()
+        sma2 = df['close'].rolling(4).mean()
+        
+        # 2. Volume criteria
+        mean_vol20 = volume.rolling(10).mean()
+        vol_ratio = volume / (mean_vol20 + 1e-8)
+        
+        # 3. Conditions
+        cond1 = (sma8 + std8) < sma2
+        cond2 = (sma8 + std8) > sma2
+        cond3 = (sma8 + std8) == sma2
+        cond4 = vol_ratio >= 1
+        
+        # 4. Combine into signal
+        signal = pd.Series(0.0, index=df.index)
+        signal[cond1] = -1
+        signal[cond2] = 1
+        signal[cond3] = -1
+        signal[cond3 & cond4] = 1
+
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_005(df: pd.DataFrame):
+        """ -1 * TSMAX(CORR(TSRANK(VOLUME, 5), TSRANK(HIGH, 5), 5), 3) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Time-series rank over 5 days
+        tsrank_vol = volume.rolling(5).rank(pct=True)
+        tsrank_high = df['high'].rolling(5).rank(pct=True)
+        
+        # 2. Rolling correlation over 5 days
+        corr_5 = tsrank_vol.rolling(5).corr(tsrank_high).fillna(0)
+        
+        # 3. Rolling Max over 3 days
+        max_corr = corr_5.rolling(3).max()
+        
+        # 4. Final signal (already bounded because corr is [-1, 1])
+        signal = -1 * max_corr
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_006(df: pd.DataFrame, window=24):
+        """ (RANK(SIGN(DELTA((((OPEN * 0.85) + (HIGH * 0.15))), 4)))* -1) """
+        # 1. Weighted price
+        w_price = (df['open'] * 0.85) + (df['high'] * 0.15)
+        
+        # 2. Delta
+        delta_price = w_price.diff(4)
+        
+        # 3. Sign
+        sign_price = np.sign(delta_price)
+        
+        # 4. Cross-sectional RANK converted to TS RANK over 'window' days
+        ranked_sign = sign_price.rolling(window).rank(pct=True)
+        
+        # 5. Normalize and flip
+        signal = -1 * ((2 * ranked_sign) - 1)
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_007(df: pd.DataFrame, window=30):
+        """ ((RANK(MAX((VWAP - CLOSE), 3)) + RANK(MIN((VWAP - CLOSE), 3))) * RANK(DELTA(VOLUME, 3))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. VWAP - Close diff
+        diff = vwap - df['close']
+        max_diff = diff.rolling(3).max()
+        min_diff = diff.rolling(3).min()
+        
+        # 2. Volume Delta
+        delta_vol = volume.diff(3)
+        
+        # 3. Time-Series Ranks instead of Cross-sectional
+        rank_max = max_diff.rolling(window).rank(pct=True)
+        rank_min = min_diff.rolling(window).rank(pct=True)
+        rank_vol = delta_vol.rolling(window).rank(pct=True)
+        
+        # 4. Combine
+        raw_signal = (rank_max + rank_min) * rank_vol
+        
+        # 5. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_008(df: pd.DataFrame,window=1 ,factor=50):
+        factor = int(factor)
+        """ RANK(DELTA(((((HIGH + LOW) / 2) * 0.2) + (VWAP * 0.8)), 4) * -1) """
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Weighted Price
+        w_price = (((df['high'] + df['low']) / 2) * 0.2) + (vwap * 0.8)
+        
+        # 2. Delta
+        delta_p = w_price.diff(window) * -1
+        
+        # 3. TS Rank (normalize to [-1, 1])
+        ranked_delta = delta_p.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_delta) - 1
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_009(df: pd.DataFrame,window=3, factor=20):
+        factor = int(factor)
+        """ SMA(((HIGH+LOW)/2-(DELAY(HIGH,1)+DELAY(LOW,1))/2)*(HIGH-LOW)/VOLUME,7,2) """
+        # window 4,5,6,7
+        # window_rank 10,100,10
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Current and Previous Midprice
+        mid_price = (df['high'] + df['low']) / 2
+        prev_mid_price = (df['high'].shift(1) + df['low'].shift(1)) / 2
+        
+        # 2. Price Change
+        change = mid_price - prev_mid_price
+        
+        # 3. Range to Volume ratio
+        range_vol = (df['high'] - df['low']) / (volume + 1e-8)
+        
+        # 4. Raw metric
+        raw_metric = change * range_vol
+        
+        # 5. SMA (EWM with alpha=2/7)
+        sma_val = raw_metric.ewm(alpha=window/7, adjust=False).mean()
+        
+        # 6. Normalize
+        ranked_signal = sma_val.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_010(df: pd.DataFrame, window=40):
+        """ (RANK(MAX(((RET < 0) ? STD(RET, 20) : CLOSE)^2),5)) """
+        ret = df['close'].pct_change()
+        
+        # 1. Rolling STD
+        std_ret = ret.rolling(20).std()
+        
+        # 2. Condition
+        cond = ret < 0
+        part = pd.Series(0.0, index=df.index)
+        part[cond] = std_ret
+        part[~cond] = df['close']
+        
+        # 3. Square and Max
+        part_sq = part ** 2
+        max_part = part_sq.rolling(5).max()
+        
+        # 4. Normalize
+        ranked_signal = max_part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_011(df: pd.DataFrame, window=60): 
+        """ SUM(((CLOSE-LOW)-(HIGH-CLOSE))/(HIGH-LOW)*VOLUME,6) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Price Location Value
+        range_diff = df['high'] - df['low'] + 1e-8
+        location = ((df['close'] - df['low']) - (df['high'] - df['close'])) / range_diff
+        
+        # 2. Volume Weighted Location
+        vol_weighted = location * volume
+        
+        # 3. Sum over 6 days
+        sum_val = vol_weighted.rolling(2).sum()
+        
+        # 4. Normalize
+        ranked_signal = sum_val.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_012(df: pd.DataFrame, window=10):
+        """ (RANK((OPEN - (SUM(VWAP, 10) / 10)))) * (-1 * (RANK(ABS((CLOSE - VWAP))))) """
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        # 1. Open minus SMA(VWAP, 10)
+        vwap_sma = vwap.rolling(5).mean()
+        open_diff = df['open'] - vwap_sma
+        rank_open = open_diff.rolling(window).rank(pct=True)
+        
+        # 2. Abs Close minus VWAP
+        abs_diff = (df['close'] - vwap).abs()
+        rank_abs = abs_diff.rolling(window).rank(pct=True)
+        
+        # 3. Combine
+        raw_signal = rank_open * (-1 * rank_abs)
+        
+        # 4. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_013(df: pd.DataFrame, window=15):
+        """ (((HIGH * LOW)^0.5) - VWAP) """
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Geometric Mean of High and Low
+        geom_mean = np.sqrt(df['high'] * df['low'])
+        
+        # 2. Difference from VWAP
+        diff = geom_mean - vwap
+        
+        # 3. Normalize
+        ranked_signal = diff.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_014(df: pd.DataFrame, window=100):
+        """ CLOSE-DELAY(CLOSE,5) """
+        # 1. 5-day Price Change
+        change = df['close'] - df['close'].shift(2)
+        
+        # 2. Normalize
+        ranked_signal = change.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_015(df: pd.DataFrame, window=10):
+        """ OPEN/DELAY(CLOSE,1)-1 """
+        # 1. Overnight Return
+        overnight_ret = (df['open'] / df['close'].shift(1)) - 1
+        
+        # 2. Normalize
+        ranked_signal = overnight_ret.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_016(df: pd.DataFrame, window=20):
+        """ (-1 * TSMAX(RANK(CORR(RANK(VOLUME), RANK(VWAP), 5)), 5)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. TS Rank
+        rank_vol = volume.rolling(window).rank(pct=True)
+        rank_vwap = vwap.rolling(window).rank(pct=True)
+        
+        # 2. Correlation
+        corr_val = rank_vol.rolling(5).corr(rank_vwap).fillna(0)
+        
+        # 3. TS Rank of Correlation
+        rank_corr = corr_val.rolling(window).rank(pct=True)
+        
+        # 4. TS MAX
+        max_val = rank_corr.rolling(5).max()
+        
+        # 5. Signal
+        signal = -1 * max_val
+       
+        return signal.fillna(0)
+        
+    @staticmethod
+    def alpha_popbo_017(df: pd.DataFrame,window=45, factor=50):
+        factor = int(factor)
+        # window 35,30,40,45
+        # window_rank 10,100,10
+        """ RANK((VWAP - MAX(VWAP, 15)))^DELTA(CLOSE, 5) """
+        # vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        vwap = (df['high']+df['low']+df['close'])/3
+        
+        # 1. VWAP minus TSMAX(VWAP, 15)
+        max_vwap = vwap.rolling(window).max()
+        diff = vwap - max_vwap
+        
+        # 2. Rank of Diff
+        rank_diff = diff.rolling(factor).rank(pct=True)
+        
+        # 3. Delta Close
+        delta_close = df['close'].diff(1)
+        
+        # 4. Power
+        raw_signal = rank_diff ** delta_close
+        
+        # 5. Normalize
+        ranked_signal = raw_signal.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_018(df: pd.DataFrame,window=1, factor=20):
+        factor = int(factor)
+        """ CLOSE/DELAY(CLOSE,5) """
+        # 1. 5-day Return
+        ret5 = df['close'] / df['close'].shift(window)
+        
+        # 2. Normalize
+        ranked_signal = ret5.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_019(df: pd.DataFrame, window=100):
+        """ (CLOSE<DELAY(CLOSE,5)?(CLOSE-DELAY(CLOSE,5))/DELAY(CLOSE,5)
+        :(CLOSE=DELAY(CLOSE,5)?0:(CLOSE-DELAY(CLOSE,5))/CLOSE)) """
+        delay_close = df['close'].shift(20)
+        
+        # 1. Conditions
+        cond_less = df['close'] < delay_close
+        cond_eq = df['close'] == delay_close
+        cond_greater = df['close'] > delay_close
+        
+        # 2. Assign Values
+        part = pd.Series(0.0, index=df.index)
+        part[cond_less] = (df['close'] - delay_close) / delay_close
+        part[cond_eq] = 0
+        part[cond_greater] = (df['close'] - delay_close) / df['close']
+        
+        # 3. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+       
+    @staticmethod
+    def alpha_popbo_020(df: pd.DataFrame, window=70):
+        """ (CLOSE-DELAY(CLOSE,6))/DELAY(CLOSE,6)*100 """
+        # 1. 6-day Percentage Return
+        ret6 = (df['close'] - df['close'].shift(20)) / df['close'].shift(20) * 100
+        
+        # 2. Normalize
+        ranked_signal = ret6.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_021(df: pd.DataFrame, window=20):
+        """ REGBETA(MEAN(CLOSE,6),SEQUENCE(6)) """
+        # 1. 6-day SMA of close
+        mean_close = df['close'].rolling(6).mean()
+        
+        # 2. Linear regression slope against sequence [1..6]
+        seq = np.arange(1, 7)
+        def get_slope(y):
+            if len(y) < 6 or np.any(np.isnan(y)): return np.nan
+            return np.polyfit(seq, y, 1)[0]
+            
+        slope = mean_close.rolling(6).apply(get_slope, raw=True)
+        
+        # 3. TS Rank normalization
+        ranked_signal = slope.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_022(df: pd.DataFrame,window=5, factor=10):
+        factor = int(factor)
+        """ SMA(((CLOSE-MEAN(CLOSE,6))/MEAN(CLOSE,6)-DELAY((CLOSE-MEAN(CLOSE,6))/MEAN(CLOSE,6),3)),12,1) """
+        # 1. Mean(Close, 6)
+        mean_6 = df['close'].rolling(window).mean()
+        
+        # 2. Percentage deviation from 6-day mean
+        dev = (df['close'] - mean_6) / mean_6
+        
+        # 3. 3-day change of deviation
+        change_dev = dev - dev.shift(1)
+        
+        # 4. SMA of change (EWM with alpha=1/12)
+        sma_val = change_dev.ewm(alpha=1/12, adjust=False).mean()
+        
+        # 5. TS Rank normalization
+        ranked_signal = sma_val.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_023(df: pd.DataFrame,window=15, factor=10):
+        factor = int(factor)
+        """ SMA((CLOSE>DELAY(CLOSE,1)?STD(CLOSE,20):0),20,1) / ... * 100 """
+        # window 3,6,9,12,15
+        # window_rank 5,40,5
+        prev_close = df['close'].shift(1)
+        cond_up = df['close'] > prev_close
+        
+        std_20 = df['close'].rolling(5).std()
+        
+        # 1. Up std part
+        part_up = pd.Series(0.0, index=df.index)
+        part_up[cond_up] = std_20
+        
+        # 2. Down std part
+        part_down = pd.Series(0.0, index=df.index)
+        part_down[~cond_up] = std_20
+        part_down[cond_up] = 0
+        
+        # 3. SMA parts (alpha = 1/20)
+        sma_up = part_up.ewm(alpha=window/20, adjust=False).mean()
+        sma_down = part_down.ewm(alpha=window/20, adjust=False).mean()
+        
+        # 4. Ratio
+        ratio = (sma_up / (sma_up + sma_down + 1e-8)) * 100
+        
+        # 5. Normalize
+        ranked_signal = ratio.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0) 
+
+    @staticmethod
+    def alpha_popbo_024(df: pd.DataFrame, window=70):
+        """ SMA(CLOSE-DELAY(CLOSE,5),5,1) """
+        # 1. 5-day change
+        change = df['close'] - df['close'].shift(10)
+        
+        # 2. SMA (alpha=1/5)
+        sma_val = change.ewm(alpha=1/5, adjust=False).mean()
+        
+        # 3. TS Rank normalization
+        ranked_signal = sma_val.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_025(df: pd.DataFrame, window=20):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        ret = df['close'].pct_change()
+        
+        # 1. Relative Volume
+        vol_ratio = volume / (volume.rolling(20).mean() + 1e-8)
+        
+        # 2. Decaylinear of vol_ratio (span=9 approximation)
+        decay_vol = vol_ratio.ewm(span=9).mean()
+        rank_decay_vol = decay_vol.rolling(window).rank(pct=True)
+        
+        # 3. Left term
+        delta_close_7 = df['close'].diff(7)
+        left_inner = delta_close_7 * (1 - rank_decay_vol)
+        rank_left = left_inner.rolling(window).rank(pct=True)
+        
+        # 4. Right term
+        sum_ret_250 = ret.rolling(250).sum()
+        rank_right = sum_ret_250.rolling(window).rank(pct=True)
+        
+        # 5. Combine
+        raw_signal = -1 * rank_left * (1 + rank_right)
+        
+        # 6. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_026(df: pd.DataFrame, window=32):
+        """ ((((SUM(CLOSE, 7) / 7) - CLOSE)) + ((CORR(VWAP, DELAY(CLOSE, 5), 230)))) """
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left part: mean(close, 7) - close
+        mean_7 = df['close'].rolling(5).mean()
+        left = mean_7 - df['close']
+        
+        # 2. Right part: corr(vwap, delay(close, 5), 230)
+        delay_close_5 = df['close'].shift(5)
+        right = vwap.rolling(230).corr(delay_close_5).fillna(0)
+        
+        # 3. Raw sum
+        raw_signal = left + right
+        
+        # 4. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+       
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_027(df: pd.DataFrame, window=60):
+        """ WMA((CLOSE-DELAY(CLOSE,3))/DELAY(CLOSE,3)*100+(CLOSE-DELAY(CLOSE,6))/DELAY(CLOSE,6)*100,12) """
+        # 1. 3-day and 6-day returns
+        ret_3 = (df['close'] - df['close'].shift(3)) / df['close'].shift(3) * 100
+        ret_6 = (df['close'] - df['close'].shift(6)) / df['close'].shift(6) * 100
+        
+        # 2. Sum of returns
+        combined_ret = ret_3 + ret_6
+        
+        # 3. WMA (decay=0.9, window=12) -> approximation with EWM
+        wma_val = combined_ret.ewm(halflife=7).mean()
+        
+        # 4. Normalize
+        ranked_signal = wma_val.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_028(df: pd.DataFrame,window=5, factor=20):
+        factor = int(factor)
+        """ 3*SMA((CLOSE-TSMIN(LOW,9))/(TSMAX(HIGH,9)-TSMIN(LOW,9))*100,3,1)-2*SMA(SMA(...)) """
+        #window 5,10,15,20
+        #window_rank 10,100,10
+        # 1. Stochastic value
+        min_low_9 = df['low'].rolling(window).min()
+        max_high_9 = df['high'].rolling(window).max()
+        stoch = (df['close'] - min_low_9) / (max_high_9 - min_low_9 + 1e-8) * 100
+        
+        # 2. SMA(stoch, 3) -> alpha=1/3
+        sma_stoch = stoch.ewm(alpha=2/3, adjust=False).mean()
+        
+        # 3. Double SMA
+        sma_sma_stoch = sma_stoch.ewm(alpha=2/3, adjust=False).mean()
+        
+        # 4. KDJ-like composite
+        raw_signal = (3 * sma_stoch) - (2 * sma_sma_stoch)
+        
+        # 5. Normalize
+        ranked_signal = raw_signal.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_029(df: pd.DataFrame, window=1, factor=20):
+        factor = int(factor)
+        # window 1,2,3,4
+        # window_rank = 10,100,10
+        """ (CLOSE-DELAY(CLOSE,6))/DELAY(CLOSE,6)*VOLUME """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. 6-day return
+        ret_6 = (df['close'] - df['close'].shift(window)) / df['close'].shift(window)
+        
+        # 2. Volume-weighted return
+        vol_ret = ret_6 * volume
+        
+        # 3. Normalize
+        ranked_signal = vol_ret.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_031(df: pd.DataFrame,window=8, factor=20): 
+        factor = int(factor)
+        # window 2,4,6,8
+        # window_rank = 10,100,10
+        """ (CLOSE-MEAN(CLOSE,12))/MEAN(CLOSE,12)*100 """
+        # 1. 12-day SMA
+        mean_12 = df['close'].rolling(window).mean()
+        
+        # 2. Percentage deviation
+        raw_signal = (df['close'] - mean_12) / mean_12 * 100
+        
+        # 3. TS Rank normalization
+        ranked_signal = raw_signal.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_032(df: pd.DataFrame, window=10):
+        """ (-1 * SUM(RANK(CORR(RANK(HIGH), RANK(VOLUME), 3)), 3)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. TS Rank of High and Volume
+        rank_high = df['high'].rolling(window).rank(pct=True)
+        rank_vol = volume.rolling(window).rank(pct=True)
+        
+        # 2. 3-day Correlation
+        corr_3 = rank_high.rolling(3).corr(rank_vol).fillna(0)
+        
+        # 3. TS Rank of Correlation (instead of cross-sectional)
+        rank_corr = corr_3.rolling(window).rank(pct=True)
+        
+        # 4. 3-day Sum
+        sum_3 = rank_corr.rolling(3).sum()
+        
+        # 5. Combine & Normalize
+        raw_signal = -1 * sum_3
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_033(df: pd.DataFrame, window=60):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        ret = df['close'].pct_change()
+        
+        # 1. TSMIN(Low, 5) diff
+        min_low_5 = df['low'].rolling(5).min()
+        term1 = (-1 * min_low_5) + min_low_5.shift(5)
+        
+        # 2. Return diff rank
+        sum_240 = ret.rolling(240).sum()
+        sum_20 = ret.rolling(20).sum()
+        ret_metric = (sum_240 - sum_20) / 220
+        rank_ret_metric = ret_metric.rolling(window).rank(pct=True)
+        
+        # 3. TS Rank Volume
+        tsrank_vol = volume.rolling(5).rank(pct=True)
+        
+        # 4. Combine
+        raw_signal = term1 * rank_ret_metric * tsrank_vol
+        
+        # 5. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_034(df: pd.DataFrame,window =4, factor=20):
+        factor = int(factor)
+        # window 3,4,5,6,
+        # window_rank = 10,100,10
+        """ MEAN(CLOSE,12)/CLOSE """
+        # 1. 12-day SMA
+        mean_12 = df['close'].rolling(window).mean()
+        
+        # 2. Ratio
+        ratio = mean_12 / df['close']
+        
+        # 3. TS Rank normalization
+        ranked_signal = ratio.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_035(df: pd.DataFrame, window=20):
+        """ (MIN(RANK(DECAYLINEAR(DELTA(OPEN, 1), 15)), RANK(DECAYLINEAR(CORR((VOLUME), ((OPEN * 0.65) +(OPEN *0.35)), 17),7))) * -1) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. First term
+        delta_open = df['open'].diff(1)
+        decay_delta = delta_open.ewm(span=15).mean()
+        rank_decay_delta = decay_delta.rolling(window).rank(pct=True)
+        
+        # 2. Second term
+        open_comb = (df['open'] * 0.65) + (df['open'] * 0.35)
+        corr_17 = volume.rolling(17).corr(open_comb).fillna(0)
+        decay_corr = corr_17.ewm(span=7).mean()
+        rank_decay_corr = decay_corr.rolling(window).rank(pct=True)
+        
+        # 3. Min
+        min_rank = np.minimum(rank_decay_delta, rank_decay_corr)
+        
+        # 4. Combine & Normalize (already essentially bounded, but we can standard normalise)
+        raw_signal = -1 * min_rank
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_036(df: pd.DataFrame, window=40):
+        """ RANK(SUM(CORR(RANK(VOLUME), RANK(VWAP),6), 2)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. TS Rank
+        rank_vol = volume.rolling(window).rank(pct=True)
+        rank_vwap = vwap.rolling(window).rank(pct=True)
+        
+        # 2. Correlation
+        corr_6 = rank_vol.rolling(6).corr(rank_vwap).fillna(0)
+        
+        # 3. Sum over 2 days
+        sum_2 = corr_6.rolling(2).sum()
+        
+        # 4. TS Rank normalize
+        ranked_signal = sum_2.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_037(df: pd.DataFrame, window=15):
+        """ (-1 * RANK(((SUM(OPEN, 5) * SUM(RET, 5)) - DELAY((SUM(OPEN, 5) * SUM(RET, 5)), 10)))) """
+        ret = df['close'].pct_change()
+        
+        # 1. Calculate internal metric
+        sum_open_5 = df['open'].rolling(5).sum()
+        sum_ret_5 = ret.rolling(5).sum()
+        metric = sum_open_5 * sum_ret_5
+        
+        # 2. Difference against 10-day delay
+        diff = metric - metric.shift(10)
+        
+        # 3. Combine & Normalize
+        raw_signal = -1 * diff
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_038(df: pd.DataFrame, window=24):
+        """ (((SUM(HIGH, 20) / 20) < HIGH) ? (-1 * DELTA(HIGH, 2)) : 0) """
+        # 1. Check Condition
+        sma_high_20 = df['high'].rolling(20).mean()
+        cond = sma_high_20 < df['high']
+        
+        # 2. Calculate values
+        part = pd.Series(0.0, index=df.index)
+        part[cond] = -1 * df['high'].diff(2)
+        
+        # 3. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_039(df: pd.DataFrame, window=35):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left term
+        delta_close_2 = df['close'].diff(2)
+        decay_delta = delta_close_2.ewm(span=8).mean()
+        rank_left = decay_delta.rolling(window).rank(pct=True)
+        
+        # 2. Right term components
+        w_price = (vwap * 0.3) + (df['open'] * 0.7)
+        mean_vol_180 = volume.rolling(180).mean()
+        # Note: SUM(MEAN, 37) is equivalent to moving sum of moving average
+        sum_mean_vol = mean_vol_180.rolling(37).sum()
+        
+        # 3. Correlation and Decay
+        corr_14 = w_price.rolling(14).corr(sum_mean_vol).fillna(0)
+        decay_corr = corr_14.ewm(span=12).mean()
+        rank_right = decay_corr.rolling(window).rank(pct=True)
+        
+        # 4. Combine & Normalize
+        raw_signal = -1 * (rank_left - rank_right)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_040(df: pd.DataFrame, window=50):
+        """ SUM((CLOSE>DELAY(CLOSE,1)?VOLUME:0),26)/SUM((CLOSE<=DELAY(CLOSE,1)?VOLUME:0),26)*100 """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Conditions
+        prev_close = df['close'].shift(1)
+        cond_up = df['close'] > prev_close
+        
+        # 2. Up Volume
+        vol_up = pd.Series(0.0, index=df.index)
+        vol_up[cond_up] = volume
+        
+        # 3. Down Volume
+        vol_down = pd.Series(0.0, index=df.index)
+        vol_down[~cond_up] = volume
+        
+        # 4. Sums and Ratio
+        sum_up = vol_up.rolling(26).sum()
+        sum_down = vol_down.rolling(26).sum()
+        ratio = (sum_up / (sum_down + 1e-8)) * 100
+        
+        # 5. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_041(df: pd.DataFrame, window=10):
+        """ (RANK(MAX(DELTA((VWAP), 3), 5))* -1) """
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Delta VWAP (3 days)
+        delta_vwap = vwap.diff(3)
+        
+        # 2. Maximum of Delta VWAP (5 days)
+        max_delta = delta_vwap.rolling(2).max()
+        
+        # 3. TS Rank of Max Delta
+        rank_max = max_delta.rolling(window).rank(pct=True)
+        
+        # 4. Final signal and normalization
+        raw_signal = -1 * rank_max
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_042(df: pd.DataFrame, window=100):
+        """ ((-1 * RANK(STD(HIGH, 10))) * CORR(HIGH, VOLUME, 10)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. TS Rank of High STD
+        std_high = df['high'].rolling(10).std()
+        rank_std = std_high.rolling(window).rank(pct=True)
+        
+        # 2. Correlation between High and Volume
+        corr_10 = df['high'].rolling(10).corr(volume).fillna(0)
+        
+        # 3. Combine and normalize
+        raw_signal = -1 * rank_std * corr_10
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_043(df: pd.DataFrame, window=50):
+        """ SUM((CLOSE>DELAY(CLOSE,1)?VOLUME:(CLOSE<DELAY(CLOSE,1)?-VOLUME:0)),6) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        prev_close = df['close'].shift(1)
+        
+        # 1. Price conditions
+        cond_up = df['close'] > prev_close
+        cond_down = df['close'] < prev_close
+        
+        # 2. Conditional Volume
+        part = pd.Series(0.0, index=df.index)
+        part[cond_up] = volume
+        part[cond_down] = -1 * volume
+        
+        # 3. Rolling sum
+        sum_6 = part.rolling(2).sum()
+        
+        # 4. Normalize
+        ranked_signal = sum_6.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_044(df: pd.DataFrame, window=5):
+        """ (TSRANK(DECAYLINEAR(CORR(((LOW )), MEAN(VOLUME,10), 7), 6),4) + TSRANK(DECAYLINEAR(DELTA((VWAP),3), 10), 15)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Term 1 (Low and Mean Vol Corr)
+        mean_vol = volume.rolling(10).mean()
+        corr_7 = df['low'].rolling(7).corr(mean_vol).fillna(0)
+        decay_corr = corr_7.ewm(span=6).mean()
+        tsrank_1 = decay_corr.rolling(4).rank(pct=True)
+        
+        # 2. Term 2 (Delta VWAP Decay)
+        delta_vwap = vwap.diff(3)
+        decay_delta = delta_vwap.ewm(span=10).mean()
+        tsrank_2 = decay_delta.rolling(15).rank(pct=True)
+        
+        # 3. Combine and normalize
+        raw_signal = tsrank_1 + tsrank_2
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_045(df: pd.DataFrame, window=5):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term
+        w_price = (df['close'] * 0.6) + (df['open'] * 0.4)
+        delta_p = w_price.diff(1)
+        rank_left = delta_p.rolling(window).rank(pct=True)
+        
+        # 2. Right Term
+        mean_vol = volume.rolling(100).mean()
+        corr_15 = vwap.rolling(15).corr(mean_vol).fillna(0)
+        rank_right = corr_15.rolling(window).rank(pct=True)
+        
+        # 3. Combine and normalize
+        raw_signal = rank_left * rank_right
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_046(df: pd.DataFrame, window=60): 
+        """ (MEAN(CLOSE,3)+MEAN(CLOSE,6)+MEAN(CLOSE,12)+MEAN(CLOSE,24))/(4*CLOSE) """
+        # 1. Moving Averages
+        mean_3 = df['close'].rolling(3).mean()
+        mean_6 = df['close'].rolling(6).mean()
+        mean_12 = df['close'].rolling(12).mean()
+        mean_24 = df['close'].rolling(24).mean()
+        
+        # 2. Ratio
+        ratio = (mean_3 + mean_6 + mean_12 + mean_24) / (4 * df['close'] + 1e-8)
+        
+        # 3. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_047(df: pd.DataFrame,window=7, factor=20):
+        factor = int(factor)
+        # window 5,6,7,8
+        # window_rank 10,100,10
+        """ SMA((TSMAX(HIGH,6)-CLOSE)/(TSMAX(HIGH,6)-TSMIN(LOW,6))*100,9,1) """
+        # 1. Stochastic components
+        max_high_6 = df['high'].rolling(3).max()
+        min_low_6 = df['low'].rolling(3).min()
+        
+        # 2. %K Stochastic Formula
+        stoch = (max_high_6 - df['close']) / (max_high_6 - min_low_6 + 1e-8) * 100
+        
+        # 3. SMA (alpha = 1/9)
+        sma_stoch = stoch.ewm(alpha=window/9, adjust=False).mean()
+        
+        # 4. Normalize
+        ranked_signal = sma_stoch.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_048(df: pd.DataFrame, window=60):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Signs of daily returns
+        sign_1 = np.sign(df['close'].diff(1))
+        sign_2 = np.sign(df['close'].shift(1).diff(1))
+        sign_3 = np.sign(df['close'].shift(2).diff(1))
+        
+        # 2. Sum and limit signs
+        sum_signs = sign_1 + sign_2 + sign_3
+        rank_signs = sum_signs.rolling(window).rank(pct=True)
+        
+        # 3. Volume factors
+        sum_vol_5 = volume.rolling(5).sum()
+        sum_vol_20 = volume.rolling(10).sum()
+        
+        # 4. Combine
+        raw_signal = -1 * (rank_signs * sum_vol_5) / (sum_vol_20 + 1e-8)
+        
+        # 5. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_049(df: pd.DataFrame, window=5):
+        # 1. Trend Conditions
+        cond_up = (df['high'] + df['low']) >= (df['high'].shift(1) + df['low'].shift(1))
+        
+        # 2. Maximum absolute components
+        max_abs_diff = np.maximum(df['high'].diff(1).abs(), df['low'].diff(1).abs())
+        
+        # 3. Conditional Values
+        part1 = pd.Series(0.0, index=df.index)
+        part1[~cond_up] = max_abs_diff
+        
+        part2 = pd.Series(0.0, index=df.index)
+        part2[cond_up] = max_abs_diff
+        
+        # 4. Sums
+        sum_part1 = part1.rolling(12).sum()
+        sum_part2 = part2.rolling(12).sum()
+        
+        # 5. Ratio and Normalize
+        ratio = sum_part1 / (sum_part1 + sum_part2 + 1e-8)
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_050(df: pd.DataFrame, window=70):
+        # 1. Trend Conditions
+        cond_up = (df['high'] + df['low']) >= (df['high'].shift(1) + df['low'].shift(1))
+        
+        # 2. Maximum absolute components
+        max_abs_diff = np.maximum(df['high'].diff(1).abs(), df['low'].diff(1).abs())
+        
+        # 3. Conditional Values
+        part1 = pd.Series(0.0, index=df.index)
+        part1[~cond_up] = max_abs_diff
+        
+        part2 = pd.Series(0.0, index=df.index)
+        part2[cond_up] = max_abs_diff
+        
+        # 4. Sums
+        sum_part1 = part1.rolling(30).sum()
+        sum_part2 = part2.rolling(30).sum()
+        
+        # 5. Ratio Difference
+        ratio_diff = (sum_part1 - sum_part2) / (sum_part1 + sum_part2 + 1e-8)
+        
+        # 6. Normalize
+        ranked_signal = ratio_diff.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+        
+    @staticmethod
+    def alpha_popbo_051(df: pd.DataFrame, window=90):
+        """ SUM(((HIGH+LOW)<=... """
+        cond_down = (df['high'] + df['low']) <= (df['high'].shift(1) + df['low'].shift(1))
+        
+        max_abs_diff = np.maximum(df['high'].diff(1).abs(), df['low'].diff(1).abs())
+        
+        part1 = pd.Series(0.0, index=df.index)
+        part1[~cond_down] = max_abs_diff
+        
+        part2 = pd.Series(0.0, index=df.index)
+        part2[cond_down] = max_abs_diff
+        
+        sum_part1 = part1.rolling(30).sum()
+        sum_part2 = part2.rolling(30).sum()
+        
+        ratio = sum_part1 / (sum_part1 + sum_part2 + 1e-8)
+        
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_052(df: pd.DataFrame, window=80): 
+        """ SUM(MAX(0,HIGH-DELAY((HIGH+LOW+CLOSE)/3,1)),26)/SUM(MAX(0,DELAY((HIGH+LOW+CLOSE)/3,1)-L),26)*100 """
+        vwap = (df['high'] + df['low'] + df['close']) / 3
+        delay_vwap = vwap.shift(1)
+        
+        up_move = np.maximum(0, df['high'] - delay_vwap) 
+        down_move = np.maximum(0, delay_vwap - df['low'])
+        
+        sum_up = up_move.rolling(26).sum()
+        sum_down = down_move.rolling(26).sum()
+        
+        ratio = (sum_up / (sum_down + 1e-8)) * 100
+        
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_053(df: pd.DataFrame, window=5):
+        """ COUNT(CLOSE>DELAY(CLOSE,1),12)/12*100 """
+        cond_up = df['close'] > df['close'].shift(1)
+        count_up = cond_up.rolling(12).sum()
+        
+        ratio = (count_up / 12) * 100
+        
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_054(df: pd.DataFrame, window=10):
+        """ (-1 * RANK((STD(ABS(CLOSE - OPEN)) + (CLOSE - OPEN)) + CORR(CLOSE, OPEN,10))) """
+        diff_co = df['close'] - df['open']
+        abs_diff_co = diff_co.abs()
+        
+        # 1. 10-day STD of Absolute C-O difference
+        std_abs_diff = abs_diff_co.rolling(10).std()
+        
+        # 2. 10-day Correlation of Close and Open
+        corr_10 = df['close'].rolling(10).corr(df['open']).fillna(0)
+        
+        # 3. Inner expression
+        inner_val = std_abs_diff + diff_co + corr_10
+        rank_inner = inner_val.rolling(window).rank(pct=True)
+        
+        # 4. Normalize
+        raw_signal = -1 * rank_inner
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+    @staticmethod
+    def alpha_popbo_055(df: pd.DataFrame, window=30):
+        """ SUM(...) * MAX(...) / ... """
+        A = (df['high'] - df['close'].shift(1)).abs()
+        B = (df['low'] - df['close'].shift(1)).abs()
+        C = (df['high'] - df['low'].shift(1)).abs()
+        
+        cond1 = (A > B) & (A > C)
+        cond2 = (B > C) & (B > A)
+        cond3 = (C >= A) & (C >= B)
+        
+        part0 = 16 * (df['close'] + (df['close'] - df['open'])/2 - df['open'].shift(1))
+        
+        part1 = pd.Series(0.0, index=df.index)
+        part1[cond1] = A + B/2 + (df['close'].shift(1) - df['open'].shift(1)).abs() / 4
+        part1[cond2] = B + A/2 + (df['close'].shift(1) - df['open'].shift(1)).abs() / 4
+        part1[cond3] = C + (df['close'].shift(1) - df['open'].shift(1)).abs() / 4
+        
+        part2 = np.maximum(A, B)
+        
+        # 1. Daily term
+        daily_metric = (part0 / (part1 + 1e-8)) * part2
+        
+        # 2. Sum over 20 days
+        sum_metric = daily_metric.rolling(20).sum()
+        
+        # 3. Normalize
+        ranked_signal = sum_metric.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_056(df: pd.DataFrame, window=50):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Left side rank
+        tsmin_open_12 = df['open'].rolling(12).min()
+        A = (df['open'] - tsmin_open_12).rolling(window).rank(pct=True)
+        
+        # 2. Right side inner
+        sum_mid_19 = ((df['high'] + df['low']) / 2).rolling(19).sum()
+        mean_vol_40 = volume.rolling(40).mean()
+        sum_mean_vol_19 = mean_vol_40.rolling(19).sum()
+        corr_13 = sum_mid_19.rolling(13).corr(sum_mean_vol_19).fillna(0)
+        
+        rank_corr = corr_13.rolling(window).rank(pct=True)
+        
+        # 3. Right side rank
+        B = (rank_corr ** 5).rolling(window).rank(pct=True)
+        
+        # 4. Condition
+        cond = A < B
+        part = pd.Series(0.0, index=df.index)
+        part[cond] = 1.0
+        
+        # 5. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_057(df: pd.DataFrame, window=80):
+        """ SMA((CLOSE-TSMIN(LOW,9))/(TSMAX(HIGH,9)-TSMIN(LOW,9))*100,3,1) """
+        tsmin_low = df['low'].rolling(40).min()
+        tsmax_high = df['high'].rolling(40).max()
+        
+        stoch = (df['close'] - tsmin_low) / (tsmax_high - tsmin_low + 1e-8) * 100
+        sma_stoch = stoch.ewm(alpha=1/3, adjust=False).mean()
+        
+        ranked_signal = sma_stoch.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_058(df: pd.DataFrame, window=50):
+        """ COUNT(CLOSE>DELAY(CLOSE,1),20)/20*100 """
+        cond_up = df['close'] > df['close'].shift(1)
+        count_up = cond_up.rolling(20).sum()
+        
+        ratio = (count_up / 20) * 100
+        
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_059(df: pd.DataFrame, window=60):
+        prev_close = df['close'].shift(1)
+        
+        cond_gt = df['close'] > prev_close
+        cond_lt = df['close'] < prev_close
+        
+        part = pd.Series(0.0, index=df.index)
+        part[cond_gt] = df['close'] - np.minimum(df['low'], prev_close)
+        part[cond_lt] = df['close'] - np.maximum(df['high'], prev_close)
+        
+        sum_20 = part.rolling(20).sum()
+        
+        ranked_signal = sum_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_060(df: pd.DataFrame, window=60):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        range_diff = df['high'] - df['low']
+        location = ((df['close'] - df['low']) - (df['high'] - df['close'])) / (range_diff + 1e-8)
+        
+        vol_weighted = location * volume
+        sum_20 = vol_weighted.rolling(20).sum()
+        
+        ranked_signal = sum_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_061(df: pd.DataFrame, window=10):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term
+        delta_vwap = vwap.diff(1)
+        decay_delta = delta_vwap.ewm(span=12).mean()
+        rank_left = decay_delta.rolling(window).rank(pct=True)
+        
+        # 2. Right Term
+        mean_vol = volume.rolling(80).mean()
+        corr_8 = df['low'].rolling(8).corr(mean_vol).fillna(0)
+        rank_corr = corr_8.rolling(17).rank(pct=True)
+        decay_rank = rank_corr.ewm(span=17).mean()
+        rank_right = decay_rank.rolling(window).rank(pct=True)
+        
+        # 3. Max and Normalize
+        max_rank = np.maximum(rank_left, rank_right)
+        raw_signal = -1 * max_rank
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+    
+
+    @staticmethod
+    def alpha_popbo_062(df: pd.DataFrame, window=10):
+        """ (-1 * CORR(HIGH, RANK(VOLUME), 5)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Rank of volume
+        rank_vol_5 = volume.rolling(5).rank(pct=True)
+        
+        # 2. Correlation
+        corr_5 = df['high'].rolling(5).corr(rank_vol_5).fillna(0)
+        
+        # 3. Normalize
+        raw_signal = -1 * corr_5
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_063(df: pd.DataFrame,window=5, factor=20):
+        factor = int(factor)
+        # window 2,3,4,5
+        # window_rank = 10,100,10
+        """ SMA(MAX(CLOSE-DELAY(CLOSE,1),0),6,1)/SMA(ABS(CLOSE-DELAY(CLOSE,1)),6,1)*100 """
+        diff_1 = df['close'].diff(1)
+        
+        # 1. Up Moves and Absolute Moves
+        up_move = np.maximum(0, diff_1)
+        abs_move = diff_1.abs()
+        
+        # 2. SMA (alpha = 1/6)
+        sma_up = up_move.ewm(alpha=window/6, adjust=False).mean()
+        sma_abs = abs_move.ewm(alpha=window/6, adjust=False).mean()
+        
+        # 3. RSI-like Ratio
+        rsi_like = (sma_up / (sma_abs + 1e-8)) * 100
+        
+        # 4. Normalize
+        ranked_signal = rsi_like.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_064(df: pd.DataFrame, window=20):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term
+        rank_vwap_4 = vwap.rolling(4).rank(pct=True)
+        rank_vol_4 = volume.rolling(4).rank(pct=True)
+        corr_4_vwap_vol = rank_vwap_4.rolling(4).corr(rank_vol_4).fillna(0)
+        decay_left = corr_4_vwap_vol.ewm(span=4).mean()
+        rank_left = decay_left.rolling(window).rank(pct=True)
+        
+        # 2. Right Term
+        rank_close_4 = df['close'].rolling(4).rank(pct=True)
+        mean_vol_60 = volume.rolling(60).mean()
+        rank_mean_vol_60_4 = mean_vol_60.rolling(4).rank(pct=True)
+        corr_4_close_vol = rank_close_4.rolling(4).corr(rank_mean_vol_60_4).fillna(0)
+        max_corr = corr_4_close_vol.rolling(13).max()
+        decay_right = max_corr.ewm(span=14).mean()
+        rank_right = decay_right.rolling(window).rank(pct=True)
+        
+        # 3. Max and Normalize
+        max_rank = np.maximum(rank_left, rank_right)
+        raw_signal = -1 * max_rank
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_065(df: pd.DataFrame,window=2, factor=20):
+        factor = int(factor)
+        # window = 2,3,4,5
+        # window_rank = 10,100,10
+        """ MEAN(CLOSE,6)/CLOSE """
+        # 1. 6-day SMA
+        mean_6 = df['close'].rolling(window).mean()
+        
+        # 2. Ratio
+        ratio = mean_6 / df['close']
+        
+        # 3. Normalize
+        ranked_signal = ratio.rolling(factor).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_066(df: pd.DataFrame, window=50):
+        """ (CLOSE-MEAN(CLOSE,6))/MEAN(CLOSE,6)*100 """
+        # 1. 6-day SMA
+        mean_6 = df['close'].rolling(3).mean()
+        
+        # 2. Percentage Deviation
+        pct_dev = (df['close'] - mean_6) / mean_6 * 100
+        
+        # 3. Normalize
+        ranked_signal = pct_dev.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_067(df: pd.DataFrame,window=5, window_rank=50):
+        # window 10,13,16,19
+        # window_rank 10,100,10
+        """ SMA(MAX(CLOSE-DELAY(CLOSE,1),0),24,1)/SMA(ABS(CLOSE-DELAY(CLOSE,1)),24,1)*100 """
+        diff_1 = df['close'].diff(1)
+        
+        # 1. Up Moves and Absolute Moves
+        up_move = np.maximum(0, diff_1)
+        abs_move = diff_1.abs()
+        
+        # 2. SMA (alpha = 1/24)
+        sma_up = up_move.ewm(alpha=window/24, adjust=True).mean()
+        sma_abs = abs_move.ewm(alpha=window/24, adjust=True).mean()
+        
+        # 3. RSI-like Ratio
+        rsi_like = (sma_up / (sma_abs + 1e-8)) * 100
+        
+        # 4. Normalize
+        ranked_signal = rsi_like.rolling(window_rank).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_068(df: pd.DataFrame, window=80):
+        """ SMA(((HIGH+LOW)/2-(DELAY(HIGH,1)+DELAY(LOW,1))/2)*(HIGH-LOW)/VOLUME,15,2) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Midpoint Delta
+        midpoint = (df['high'] + df['low']) / 2
+        midpoint_delay = midpoint.shift(1)
+        delta_mid = midpoint - midpoint_delay
+        
+        # 2. Range
+        range_val = df['high'] - df['low']
+        
+        # 3. Metric calculation
+        metric = (delta_mid * range_val) / (volume + 1e-8)
+        
+        # 4. SMA (alpha = 2/15)
+        sma_15 = metric.ewm(alpha=2/15, adjust=False).mean()
+        
+        # 5. Normalize
+        ranked_signal = sma_15.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+    @staticmethod
+    def alpha_popbo_069(df: pd.DataFrame, window=60):
+        """ DTM and DBM Ratio """
+        delay_open = df['open'].shift(1)
+        
+        # 1. DTM: Buying Pressure
+        dtm_cond = df['open'] <= delay_open
+        dtm = pd.Series(0.0, index=df.index)
+        dtm[~dtm_cond] = np.maximum(df['high'] - df['open'], df['open'] - delay_open)
+        
+        # 2. DBM: Selling Pressure
+        dbm_cond = df['open'] >= delay_open
+        dbm = pd.Series(0.0, index=df.index)
+        dbm[~dbm_cond] = np.maximum(df['open'] - df['low'], df['open'] - delay_open)
+        
+        # 3. Sums over 20 days
+        sum_dtm = dtm.rolling(20).sum()
+        sum_dbm = dbm.rolling(20).sum()
+        
+        # 4. Conditional Ratio
+        cond_gt = sum_dtm > sum_dbm
+        cond_lt = sum_dtm < sum_dbm
+        
+        part = pd.Series(0.0, index=df.index)
+        part[cond_gt] = (sum_dtm - sum_dbm) / (sum_dtm + 1e-8)
+        part[cond_lt] = (sum_dtm - sum_dbm) / (sum_dbm + 1e-8)
+        
+        # 5. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_070(df: pd.DataFrame, window=24):
+        """ STD(AMOUNT,6) """
+        # We calculate Amount as Close * Volume
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        amount = df.get('amount', df['close'] * volume)
+        
+        # 1. 6-day STD of Amount
+        std_6 = amount.rolling(6).std()
+        
+        # 2. Normalize
+        ranked_signal = std_6.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_071(df: pd.DataFrame, window=60):
+        """ (CLOSE-MEAN(CLOSE,24))/MEAN(CLOSE,24)*100 """
+        mean_24 = df['close'].rolling(24).mean()
+        
+        # 1. Percentage Deviation
+        ratio = (df['close'] - mean_24) / mean_24 * 100
+        
+        # 2. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_072(df: pd.DataFrame, window=50):
+        """ SMA((TSMAX(HIGH,6)-CLOSE)/(TSMAX(HIGH,6)-TSMIN(LOW,6))*100,15,1) """
+        max_high = df['high'].rolling(6).max()
+        min_low = df['low'].rolling(6).min()
+        
+        # 1. Stochastic value
+        stoch = (max_high - df['close']) / (max_high - min_low + 1e-8) * 100
+        
+        # 2. SMA (alpha = 1/15)
+        sma_15 = stoch.ewm(alpha=1/15, adjust=False).mean()
+        
+        # 3. Normalize
+        ranked_signal = sma_15.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_073(df: pd.DataFrame, window=20):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term
+        corr_10 = df['close'].rolling(10).corr(volume).fillna(0)
+        decay_16 = corr_10.ewm(span=16).mean()
+        decay_4 = decay_16.ewm(span=4).mean()
+        tsrank_5 = decay_4.rolling(5).rank(pct=True)
+        
+        # 2. Right Term
+        mean_vol_30 = volume.rolling(30).mean()
+        corr_4 = vwap.rolling(4).corr(mean_vol_30).fillna(0)
+        decay_3 = corr_4.ewm(span=3).mean()
+        rank_right = decay_3.rolling(window).rank(pct=True)
+        
+        # 3. Combine and Normalize
+        raw_signal = -1 * (tsrank_5 - rank_right)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_074(df: pd.DataFrame, window=10):
+        """ (RANK(CORR(SUM(((LOW * 0.35) + (VWAP * 0.65)), 20), SUM(MEAN(VOLUME,40), 20), 7)) + RANK(CORR(RANK(VWAP), RANK(VOLUME), 6))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term
+        w_price = (df['low'] * 0.35) + (vwap * 0.65)
+        sum_w_price_20 = w_price.rolling(20).sum()
+        
+        mean_vol_40 = volume.rolling(40).mean()
+        sum_mean_vol_20 = mean_vol_40.rolling(20).sum()
+        
+        corr_7 = sum_w_price_20.rolling(7).corr(sum_mean_vol_20).fillna(0)
+        rank_left = corr_7.rolling(window).rank(pct=True)
+        
+        # 2. Right Term
+        rank_vwap = vwap.rolling(window).rank(pct=True)
+        rank_vol = volume.rolling(window).rank(pct=True)
+        
+        corr_6 = rank_vwap.rolling(6).corr(rank_vol).fillna(0)
+        rank_right = corr_6.rolling(window).rank(pct=True)
+        
+        # 3. Combine and Normalize
+        raw_signal = rank_left + rank_right
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_075(df: pd.DataFrame, window=10):
+        bm_open = df.get('benchmark_open', df['open'])
+        bm_close = df.get('benchmark_close', df['close'])
+        
+        # 1. Conditions
+        cond_up = df['close'] > df['open']
+        cond_bm_down = bm_close < bm_open
+        both_cond = cond_up & cond_bm_down
+        
+        # 2. Sums over 50 days
+        count_both_50 = both_cond.rolling(50).sum()
+        count_bm_50 = cond_bm_down.rolling(50).sum()
+        
+        # 3. Ratio
+        ratio = count_both_50 / (count_bm_50 + 1e-8)
+        
+        # 4. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_076(df: pd.DataFrame, window=40):
+        """ STD(ABS((CLOSE/DELAY(CLOSE,1)-1))/VOLUME,20)/MEAN(ABS((CLOSE/DELAY(CLOSE,1)-1))/VOLUME,20) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Vol-adjusted absolute return
+        ret_abs = (df['close'] / df['close'].shift(1) - 1).abs()
+        metric = ret_abs / (volume + 1e-8)
+        
+        # 2. Rolling stats over 20 days
+        std_20 = metric.rolling(20).std()
+        mean_20 = metric.rolling(20).mean()
+        
+        # 3. Ratio
+        ratio = std_20 / (mean_20 + 1e-8)
+        
+        # 4. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_077(df: pd.DataFrame, window=60):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        midpoint = (df['high'] + df['low']) / 2
+        
+        # 1. Left Term
+        left_val = (midpoint + df['high']) - (vwap + df['high'])
+        decay_left = left_val.ewm(span=20).mean()
+        rank_left = decay_left.rolling(window).rank(pct=True)
+        
+        # 2. Right Term
+        mean_vol_40 = volume.rolling(40).mean()
+        corr_3 = midpoint.rolling(3).corr(mean_vol_40).fillna(0)
+        decay_right = corr_3.ewm(span=6).mean()
+        rank_right = decay_right.rolling(window).rank(pct=True)
+        
+        # 3. Min Function and Normalize
+        min_rank = np.minimum(rank_left, rank_right)
+        ranked_signal = min_rank.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_078(df: pd.DataFrame,window =2, window_rank=20):
+        # window 2,3,4,5
+        # window_rank 10,100,10
+        vwap_approx = (df['high'] + df['low'] + df['close']) / 3
+        ma_vwap_12 = vwap_approx.rolling(window).mean()
+        
+        # 1. Numerator
+        numerator = vwap_approx - ma_vwap_12
+        
+        # 2. Denominator
+        mean_dev = (df['close'] - ma_vwap_12).abs().rolling(12).mean()
+        denominator = 0.015 * mean_dev
+        
+        # 3. Ratio and Normalize
+        ratio = numerator / (denominator + 1e-8)
+        ranked_signal = ratio.rolling(window_rank).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_079(df: pd.DataFrame,window=7, window_rank=20):
+        # window 4,5,6,7
+        # window_rank 10,100,10
+        """ SMA(MAX(CLOSE-DELAY(CLOSE,1),0),12,1)/SMA(ABS(CLOSE-DELAY(CLOSE,1)),12,1)*100 """
+        diff_1 = df['close'].diff(1)
+        
+        # 1. Up Moves and Absolute Moves
+        up_move = np.maximum(0, diff_1)
+        abs_move = diff_1.abs()
+        
+        # 2. SMA (alpha = 1/12)
+        sma_up = up_move.ewm(alpha=window/12, adjust=False).mean()
+        sma_abs = abs_move.ewm(alpha=window/12, adjust=False).mean()
+        
+        # 3. RSI ratio
+        rsi_12 = (sma_up / (sma_abs + 1e-8)) * 100
+        
+        # 4. Normalize
+        ranked_signal = rsi_12.rolling(window_rank).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_080(df: pd.DataFrame, window=80):
+        """ (VOLUME-DELAY(VOLUME,5))/DELAY(VOLUME,5)*100 """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. 5-day Percentage Change in Volume
+        delay_vol_5 = volume.shift(5)
+        ratio = (volume - delay_vol_5) / (delay_vol_5 + 1e-8) * 100
+        
+        # 2. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_081(df: pd.DataFrame, window=15):
+        """ SMA(VOLUME,21,2) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. SMA (alpha = 2/21)
+        sma_21 = volume.ewm(alpha=2/21, adjust=False).mean()
+        
+        # 2. Normalize
+        ranked_signal = sma_21.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_082(df: pd.DataFrame, window=60): 
+        """ SMA((TSMAX(HIGH,6)-CLOSE)/(TSMAX(HIGH,6)-TSMIN(LOW,6))*100,20,1) """
+        max_high = df['high'].rolling(6).max()
+        min_low = df['low'].rolling(6).min()
+        
+        # 1. Stochastic value
+        stoch = (max_high - df['close']) / (max_high - min_low + 1e-8) * 100
+        
+        # 2. SMA (alpha = 1/20)
+        sma_20 = stoch.ewm(alpha=1/20, adjust=False).mean()
+        
+        # 3. Normalize
+        ranked_signal = sma_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_083(df: pd.DataFrame, window=100):
+        """ (-1 * RANK(COVIANCE(RANK(HIGH), RANK(VOLUME), 5))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Ranks
+        rank_high = df['high'].rolling(window).rank(pct=True)
+        rank_vol = volume.rolling(window).rank(pct=True)
+        
+        # 2. Covariance
+        cov_5 = rank_high.rolling(5).cov(rank_vol).fillna(0)
+        
+        # 3. Rank of Covariance
+        raw_signal = -1 * cov_5.rolling(window).rank(pct=True)
+        
+        # 4. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_084(df: pd.DataFrame, window=60): 
+        """ SUM((CLOSE>DELAY(CLOSE,1)?VOLUME:(CLOSE<DELAY(CLOSE,1)?-VOLUME:0)),20) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        prev_close = df['close'].shift(1)
+        
+        # 1. Conditions
+        cond_up = df['close'] > prev_close
+        cond_down = df['close'] < prev_close
+        
+        # 2. Conditional assignments
+        part = pd.Series(0.0, index=df.index)
+        part[cond_up] = volume
+        part[cond_down] = -1 * volume
+        
+        # 3. Sum over 20 days
+        sum_20 = part.rolling(20).sum()
+        
+        # 4. Normalize
+        ranked_signal = sum_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_085(df: pd.DataFrame, window=80):
+        """ (TSRANK((VOLUME / MEAN(VOLUME,20)), 20) * TSRANK((-1 * DELTA(CLOSE, 7)), 8)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Left Term (Volume Ratio Rank)
+        mean_vol_20 = volume.rolling(20).mean()
+        vol_ratio = volume / (mean_vol_20 + 1e-8)
+        tsrank_vol_ratio = vol_ratio.rolling(20).rank(pct=True)
+        
+        # 2. Right Term (Delta Close Rank)
+        delta_7 = df['close'].diff(7)
+        tsrank_delta = (-1 * delta_7).rolling(8).rank(pct=True)
+        
+        # 3. Combine and Normalize
+        raw_signal = tsrank_vol_ratio * tsrank_delta
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_086(df: pd.DataFrame, window=100):
+        """ Conditional return assignment based on 20-day and 10-day delays """
+        delay_10 = df['close'].shift(10)
+        delay_20 = df['close'].shift(20)
+        
+        # 1. Complex Metric
+        metric = ((delay_20 - delay_10) / 10) - ((delay_10 - df['close']) / 10)
+        
+        # 2. Conditions
+        cond_gt = metric > 0.25
+        cond_lt = metric < 0.0
+        cond_mid = (~cond_gt) & (~cond_lt)
+        
+        # 3. Conditional Values
+        part = pd.Series(0.0, index=df.index)
+        part[cond_gt] = -1.0
+        part[cond_lt] = 1.0
+        part[cond_mid] = -1 * df['close'].diff(1)
+        
+        # 4. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_087(df: pd.DataFrame, window=50):
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left term
+        delta_4 = vwap.diff(4)
+        decay_7_left = delta_4.ewm(span=7).mean()
+        rank_left = decay_7_left.rolling(window).rank(pct=True)
+        
+        # 2. Right term
+        # LOW * 0.9 + LOW * 0.1 is just LOW
+        num = df['low'] - vwap
+        den = df['open'] - (df['high'] + df['low']) / 2
+        metric = num / (den + 1e-8)
+        
+        decay_11_right = metric.ewm(span=11).mean()
+        tsrank_7_right = decay_11_right.rolling(7).rank(pct=True)
+        
+        # 3. Combine and Normalize
+        raw_signal = -1 * (rank_left + tsrank_7_right)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_088(df: pd.DataFrame, window=60):
+        """ (CLOSE-DELAY(CLOSE,20))/DELAY(CLOSE,20)*100 """
+        delay_20 = df['close'].shift(20)
+        
+        # 1. 20-day Percentage Change
+        ratio = (df['close'] - delay_20) / (delay_20 + 1e-8) * 100
+        
+        # 2. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_089(df: pd.DataFrame, window=70):
+        """ 2*(SMA(CLOSE,13,2)-SMA(CLOSE,27,2)-SMA(SMA(CLOSE,13,2)-SMA(CLOSE,27,2),10,2)) """
+        # 1. Simple Moving Averages (MACD-like)
+        sma_13 = df['close'].ewm(alpha=2/13, adjust=False).mean()
+        sma_27 = df['close'].ewm(alpha=2/27, adjust=False).mean()
+        
+        # 2. Difference
+        diff_sma = sma_13 - sma_27
+        
+        # 3. SMA of Difference (Signal Line)
+        sma_diff_10 = diff_sma.ewm(alpha=2/10, adjust=False).mean()
+        
+        # 4. Final calculation and Normalize
+        raw_signal = 2 * (diff_sma - sma_diff_10)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_090(df: pd.DataFrame, window=20):
+        """ (RANK(CORR(RANK(VWAP), RANK(VOLUME), 5)) * -1) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Ranks
+        rank_vwap = vwap.rolling(window).rank(pct=True)
+        rank_vol = volume.rolling(window).rank(pct=True)
+        
+        # 2. Correlation
+        corr_5 = rank_vwap.rolling(5).corr(rank_vol).fillna(0)
+        
+        # 3. Combine and Normalize
+        raw_signal = -1 * corr_5.rolling(window).rank(pct=True)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_091(df: pd.DataFrame, window=30):
+        """ ((RANK((CLOSE - MAX(CLOSE, 5)))*RANK(CORR((MEAN(VOLUME,40)), LOW, 5))) * -1) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Left Term
+        max_close_5 = df['close'].rolling(5).max()
+        rank_left = (df['close'] - max_close_5).rolling(window).rank(pct=True)
+        
+        # 2. Right Term
+        mean_vol_40 = volume.rolling(40).mean()
+        corr_5 = mean_vol_40.rolling(5).corr(df['low']).fillna(0)
+        rank_right = corr_5.rolling(window).rank(pct=True)
+        
+        # 3. Combine and Normalize
+        raw_signal = (rank_left * rank_right)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+    
+    @staticmethod
+    def alpha_popbo_092(df: pd.DataFrame, window=50):
+        """ (MAX(RANK(DECAYLINEAR(DELTA(((CLOSE * 0.35) + (VWAP *0.65)), 2), 3)),TSRANK(DECAYLINEAR(ABS(CORR((MEAN(VOLUME,180)), CLOSE, 13)), 5), 15)) * -1) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term
+        w_price = (df['close'] * 0.35) + (vwap * 0.65)
+        delta_2 = w_price.diff(2)
+        decay_3 = delta_2.ewm(span=3).mean()
+        rank_left = decay_3.rolling(window).rank(pct=True)
+        
+        # 2. Right Term
+        mean_vol_180 = volume.rolling(180).mean()
+        corr_13 = mean_vol_180.rolling(13).corr(df['close']).fillna(0)
+        abs_corr = corr_13.abs()
+        decay_5 = abs_corr.ewm(span=5).mean()
+        rank_right = decay_5.rolling(15).rank(pct=True)
+        
+        # 3. Combine and Normalize
+        max_rank = np.maximum(rank_left, rank_right)
+        raw_signal =  max_rank
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_093(df: pd.DataFrame, window=60):
+        """ SUM((OPEN>=DELAY(OPEN,1)?0:MAX((OPEN-LOW),(OPEN-DELAY(OPEN,1)))),20) """
+        delay_open = df['open'].shift(1)
+        
+        # 1. Conditional values
+        cond_up = df['open'] >= delay_open
+        
+        part = pd.Series(0.0, index=df.index)
+        part[~cond_up] = np.maximum(df['open'] - df['low'], df['open'] - delay_open)
+        
+        # 2. Sum over 20 days
+        sum_20 = part.rolling(20).sum()
+        
+        # 3. Normalize
+        ranked_signal = sum_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_094(df: pd.DataFrame, window=10):
+        """ SUM((CLOSE>DELAY(CLOSE,1)?VOLUME:(CLOSE<DELAY(CLOSE,1)?-VOLUME:0)),30) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        prev_close = df['close'].shift(1)
+        
+        # 1. Conditional volume assignments
+        cond_up = df['close'] > prev_close
+        cond_down = df['close'] < prev_close
+        
+        part = pd.Series(0.0, index=df.index)
+        part[cond_up] = volume
+        part[cond_down] = -1 * volume
+        
+        # 2. Sum over 30 days
+        sum_30 = part.rolling(30).sum()
+        
+        # 3. Normalize
+        ranked_signal = sum_30.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_095(df: pd.DataFrame, window=40):
+        """ STD(AMOUNT,20) """
+        # We assume amount is close * volume if not explicitly provided
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        amount = df.get('amount', df['close'] * volume)
+        
+        # 1. 20-day STD of Amount
+        std_20 = amount.rolling(20).std()
+        
+        # 2. Normalize
+        ranked_signal = std_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_096(df: pd.DataFrame, window=80):
+        """ SMA(SMA((CLOSE-TSMIN(LOW,9))/(TSMAX(HIGH,9)-TSMIN(LOW,9))*100,3,1),3,1) """
+        tsmin_low = df['low'].rolling(9).min()
+        tsmax_high = df['high'].rolling(9).max()
+        
+        # 1. Stochastic value
+        stoch = (df['close'] - tsmin_low) / (tsmax_high - tsmin_low + 1e-8) * 100
+        
+        # 2. Double SMA (alpha = 1/3)
+        sma_inner = stoch.ewm(alpha=1/3, adjust=False).mean()
+        sma_outer = sma_inner.ewm(alpha=1/3, adjust=False).mean()
+        
+        # 3. Normalize
+        ranked_signal = sma_outer.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_097(df: pd.DataFrame, window=80):
+        """ STD(VOLUME,10) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. 10-day STD of Volume
+        std_10 = volume.rolling(10).std()
+        
+        # 2. Normalize
+        ranked_signal = std_10.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_098(df: pd.DataFrame, window=4, window_rank=20):
+        mean_100 = df['close'].rolling(window_rank).mean()
+        delta_100 = mean_100.diff(window_rank)
+        delay_100 = df['close'].shift(window_rank)
+        
+        # 1. Conditional metric calculation
+        metric = delta_100 / (delay_100 + 1e-8)
+        cond = metric <= 0.05
+        
+        tsmin_100 = df['close'].rolling(window_rank).min()
+        delta_3 = df['close'].diff(window)
+        
+        # 2. Assignments
+        part = pd.Series(0.0, index=df.index)
+        part[cond] = -1 * (df['close'] - tsmin_100)
+        part[~cond] = -1 * delta_3
+        
+        # 3. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_099(df: pd.DataFrame, window=60):
+        """ (-1 * RANK(COV(RANK(CLOSE), RANK(VOLUME), 5))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Ranks
+        rank_close = df['close'].rolling(window).rank(pct=True)
+        rank_vol = volume.rolling(window).rank(pct=True)
+        
+        # 2. Covariance
+        cov_5 = rank_close.rolling(5).cov(rank_vol).fillna(0)
+        
+        # 3. Combine and Normalize
+        raw_signal = -1 * cov_5.rolling(window).rank(pct=True)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_100(df: pd.DataFrame, window=10):
+        """ STD(VOLUME,20) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. 20-day STD of Volume
+        std_20 = volume.rolling(20).std()
+        
+        # 2. Normalize
+        ranked_signal = std_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_101(df: pd.DataFrame, window=40):
+        """ ((RANK(CORR(CLOSE, SUM(MEAN(VOLUME,30), 37), 15)) < RANK(CORR(RANK(((HIGH * 0.1) + (VWAP * 0.9))),RANK(VOLUME), 11))) * -1) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Rank
+        mean_vol_30 = volume.rolling(30).mean()
+        sum_mean_vol_37 = mean_vol_30.rolling(37).sum()
+        corr_15 = df['close'].rolling(15).corr(sum_mean_vol_37).fillna(0)
+        rank1 = corr_15.rolling(window).rank(pct=True)
+        
+        # 2. Right Rank
+        metric = (df['high'] * 0.1) + (vwap * 0.9)
+        rank_metric_11 = metric.rolling(11).rank(pct=True)
+        rank_vol_11 = volume.rolling(11).rank(pct=True)
+        corr_11 = rank_metric_11.rolling(11).corr(rank_vol_11).fillna(0)
+        rank2 = corr_11.rolling(window).rank(pct=True)
+        
+        # 3. Condition
+        cond = rank1 < rank2
+        part = pd.Series(0.0, index=df.index)
+        part[cond] = 1.0
+        
+        # 4. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_102(df: pd.DataFrame, window=10):
+        """ SMA(MAX(VOLUME-DELAY(VOLUME,1),0),6,1)/SMA(ABS(VOLUME-DELAY(VOLUME,1)),6,1)*100 """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        diff_vol = volume.diff(1)
+        
+        # 1. Volume Moves
+        up_vol = np.maximum(0, diff_vol)
+        abs_vol = diff_vol.abs()
+        
+        # 2. SMA (alpha = 1/6)
+        sma_up = up_vol.ewm(alpha=1/6, adjust=False).mean()
+        sma_abs = abs_vol.ewm(alpha=1/6, adjust=False).mean()
+        
+        # 3. Ratio
+        ratio = (sma_up / (sma_abs + 1e-8)) * 100
+        
+        # 4. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_103(df: pd.DataFrame, window=40):
+        """ ((20-LOWDAY(LOW,20))/20)*100 """
+        # 1. Calculate days since 20-day low
+        lowday = df['low'].rolling(20).apply(lambda x: 19 - np.argmin(x), raw=True)
+        
+        # 2. Ratio
+        ratio = ((20 - lowday) / 20) * 100
+        
+        # 3. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_104(df: pd.DataFrame, window=10):
+        """ (-1 * (DELTA(CORR(HIGH, VOLUME, 5), 5) * RANK(STD(CLOSE, 20)))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Delta of Correlation
+        corr_5 = df['high'].rolling(5).corr(volume).fillna(0)
+        delta_5 = corr_5.diff(5)
+        
+        # 2. Rank of STD
+        std_20 = df['close'].rolling(20).std()
+        rank_std = std_20.rolling(window).rank(pct=True)
+        
+        # 3. Combine and Normalize
+        raw_signal = -1 * (delta_5 * rank_std)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_105(df: pd.DataFrame, window=30):
+        """ (-1 * CORR(RANK(OPEN), RANK(VOLUME), 10)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Ranks
+        rank_open = df['open'].rolling(window).rank(pct=True)
+        rank_vol = volume.rolling(window).rank(pct=True)
+        
+        # 2. Correlation
+        corr_10 = rank_open.rolling(10).corr(rank_vol).fillna(0)
+        
+        # 3. Combine and Normalize
+        raw_signal = -1 * corr_10
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_106(df: pd.DataFrame, window=1, window_rank = 20):
+        """ CLOSE-DELAY(CLOSE,20) """
+        # 1. 20-day Momentum
+        delta_20 = df['close'].diff(window)
+        
+        # 2. Normalize
+        ranked_signal = delta_20.rolling(window_rank).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_107(df: pd.DataFrame, window=20):
+        """ (((-1 * RANK((OPEN - DELAY(HIGH, 1)))) * RANK((OPEN - DELAY(CLOSE, 1)))) * RANK((OPEN - DELAY(LOW, 1)))) """
+        # 1. Ranks of Gaps
+        rank_1 = (df['open'] - df['high'].shift(1)).rolling(window).rank(pct=True)
+        rank_2 = (df['open'] - df['close'].shift(1)).rolling(window).rank(pct=True)
+        rank_3 = (df['open'] - df['low'].shift(1)).rolling(window).rank(pct=True)
+        
+        # 2. Combine and Normalize
+        raw_signal = -1 * rank_1 * rank_2 * rank_3
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_108(df: pd.DataFrame, window=60):
+        """ ((RANK((HIGH - MIN(HIGH, 2)))^RANK(CORR((VWAP), (MEAN(VOLUME,120)), 6))) * -1) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term
+        tsmin_high_2 = df['high'].rolling(2).min()
+        rank_left = (df['high'] - tsmin_high_2).rolling(window).rank(pct=True)
+        
+        # 2. Right Term
+        mean_vol_120 = volume.rolling(120).mean()
+        corr_6 = vwap.rolling(6).corr(mean_vol_120).fillna(0)
+        rank_right = corr_6.rolling(window).rank(pct=True)
+        
+        # 3. Power and Normalize
+        raw_signal = -1 * (rank_left ** rank_right)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_109(df: pd.DataFrame, window=20):
+        """ SMA(HIGH-LOW,10,2)/SMA(SMA(HIGH-LOW,10,2),10,2) """
+        range_val = df['high'] - df['low']
+        
+        # 1. SMAs
+        sma_1 = range_val.ewm(alpha=4/10, adjust=False).mean()
+        sma_2 = sma_1.ewm(alpha=4/10, adjust=False).mean()
+        
+        # 2. Ratio
+        ratio = sma_1 / (sma_2 + 1e-8)
+        
+        # 3. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_110(df: pd.DataFrame, window=20):
+        """ SUM(MAX(0,HIGH-DELAY(CLOSE,1)),20)/SUM(MAX(0,DELAY(CLOSE,1)-LOW),20)*100 """
+        delay_close = df['close'].shift(1)
+        
+        # 1. Up and Down Ranges
+        up_move = np.maximum(0, df['high'] - delay_close)
+        down_move = np.maximum(0, delay_close - df['low'])
+        
+        # 2. 20-day Sums
+        sum_up = up_move.rolling(20).sum()
+        sum_down = down_move.rolling(20).sum()
+        
+        # 3. Ratio
+        ratio = sum_up / (sum_down + 1e-8) * 100
+        
+        # 4. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_111(df: pd.DataFrame,window=2, window_rank=20):
+        """ SMA(VOL*((CLOSE-LOW)-(HIGH-CLOSE))/(HIGH-LOW),11,2)-SMA(VOL*((CLOSE-LOW)-(HIGH-CLOSE))/(HIGH-LOW),4,2) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Location Value
+        range_val = df['high'] - df['low']
+        location = ((df['close'] - df['low']) - (df['high'] - df['close'])) / (range_val + 1e-8)
+        
+        # 2. Metric Series
+        metric = volume * location
+        
+        # 3. SMAs
+        sma_11 = metric.ewm(alpha=window/11, adjust=False).mean()
+        sma_4 = metric.ewm(alpha=window/4, adjust=False).mean()
+        
+        # 4. Difference and Normalize
+        raw_signal = sma_11 - sma_4
+        ranked_signal = raw_signal.rolling(window_rank).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_112(df: pd.DataFrame, window=40):
+        """ (SUM((CLOSE-DELAY(CLOSE,1)>0? CLOSE-DELAY(CLOSE,1):0),12) - SUM((CLOSE-DELAY(CLOSE,1)<0?ABS(CLOSE-DELAY(CLOSE,1)):0),12))/(SUM() + SUM())*100 """
+        delta_1 = df['close'].diff(1)
+        
+        # 1. Up and Down absolute moves
+        up_move = np.maximum(0, delta_1)
+        down_move_abs = np.maximum(0, -delta_1)
+        
+        # 2. Sums over 12 days
+        sum_up_12 = up_move.rolling(window).sum()
+        sum_down_12 = down_move_abs.rolling(window).sum()
+        
+        # 3. Ratio
+        numerator = sum_up_12 - sum_down_12
+        denominator = sum_up_12 + sum_down_12
+        ratio = (numerator / (denominator + 1e-8)) * 100
+        
+        # 4. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_113(df: pd.DataFrame, window=20):
+        """ (-1 * ((RANK((SUM(DELAY(CLOSE, 5), 20) / 20)) * CORR(CLOSE, VOLUME, 2)) * RANK(CORR(SUM(CLOSE, 5),SUM(CLOSE, 20), 2)))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Left Term Rank
+        delay_5 = df['close'].shift(1)
+        sum_20_delay_5 = delay_5.rolling(20).sum() / 20
+        rank_1 = sum_20_delay_5.rolling(window).rank(pct=True)
+        
+        # 2. Mid Term
+        corr_2_cv = df['close'].rolling(20).corr(volume).fillna(0)
+        
+        # 3. Right Term Rank
+        sum_close_5 = df['close'].rolling(5).sum()
+        sum_close_20 = df['close'].rolling(20).sum()
+        corr_2_sums = sum_close_5.rolling(2).corr(sum_close_20).fillna(0)
+        rank_2 = corr_2_sums.rolling(window).rank(pct=True)
+        
+        # 4. Combine and Normalize
+        raw_signal = -1 * (rank_1 * corr_2_cv * rank_2)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_114(df: pd.DataFrame,window=2, window_rank=20):
+        """ ((RANK(DELAY(((HIGH - LOW) / (SUM(CLOSE, 5) / 5)), 2)) * RANK(RANK(VOLUME))) / (((HIGH - LOW) /(SUM(CLOSE, 5) / 5)) / (VWAP - CLOSE))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Inner Metric Calculation
+        mean_close_5 = df['close'].rolling(window_rank).mean()
+        metric = (df['high'] - df['low']) / (mean_close_5 + 1e-8)
+        
+        # 2. Numerator Left Rank
+        delay_2 = metric.shift(window)
+        rank_1 = delay_2.rolling(window_rank).rank(pct=True)
+        
+        # 3. Numerator Right Rank
+        rank_vol = volume.rolling(window_rank).rank(pct=True)
+        rank_2 = rank_vol.rolling(window_rank).rank(pct=True)
+        
+        numerator = rank_1 * rank_2
+        
+        # 4. Denominator
+        denominator = metric / (vwap - df['close'] + 1e-8)
+        
+        # 5. Combine and Normalize
+        raw_signal = numerator / (denominator + 1e-8)
+        ranked_signal = raw_signal.rolling(window_rank).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_115(df: pd.DataFrame, window=30):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Left Term Base Base Rank
+        price_l = (df['high'] * 0.9) + (df['close'] * 0.1)
+        mean_vol_30 = volume.rolling(30).mean()
+        corr_10 = price_l.rolling(10).corr(mean_vol_30).fillna(0)
+        rank_left = corr_10.rolling(window).rank(pct=True)
+        
+        # 2. Right Term Exponent Rank
+        midpoint = (df['high'] + df['low']) / 2
+        tsrank_4 = midpoint.rolling(4).rank(pct=True)
+        tsrank_vol_10 = volume.rolling(10).rank(pct=True)
+        corr_7 = tsrank_4.rolling(7).corr(tsrank_vol_10).fillna(0)
+        rank_right = corr_7.rolling(window).rank(pct=True)
+        
+        # 3. Exponential Combination and Normalize
+        raw_signal = rank_left ** rank_right
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_116(df: pd.DataFrame, window=20):
+        """ REGBETA(CLOSE,SEQUENCE,20) """
+        def rolling_regbeta(y):
+            if len(y) < 20: return np.nan
+            x = np.arange(20)
+            var_x = np.var(x, ddof=1)
+            if var_x == 0: return 0
+            cov_xy = np.cov(x, y)[0, 1]
+            return cov_xy / var_x
+            
+        beta_20 = df['close'].rolling(20).apply(rolling_regbeta, raw=True)
+        
+        ranked_signal = beta_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_117(df: pd.DataFrame, window=30):
+        """ ((TSRANK(VOLUME, 32) * (1 - TSRANK(((CLOSE + HIGH) - LOW), 16))) * (1 - TSRANK(RET, 32))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Volume Rank
+        tsrank_vol_32 = volume.rolling(32).rank(pct=True)
+        
+        # 2. Price Metric Rank Inverse
+        metric = (df['close'] + df['high']) - df['low']
+        tsrank_metric_16 = metric.rolling(16).rank(pct=True)
+        
+        # 3. Return Rank Inverse
+        ret = df['close'].pct_change(1)
+        tsrank_ret_32 = ret.rolling(32).rank(pct=True)
+        
+        # 4. Multiplicative Combination and Normalize
+        raw_signal = (tsrank_vol_32 * (1.0 - tsrank_metric_16)) * (1.0 - tsrank_ret_32)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_118(df: pd.DataFrame, window=10):
+        """ SUM(HIGH-OPEN,20)/SUM(OPEN-LOW,20)*100 """
+        ho_diff = df['high'] - df['open']
+        ol_diff = df['open'] - df['low']
+        
+        # 1. 20-day sums
+        sum_ho_20 = ho_diff.rolling(window).sum()
+        sum_ol_20 = ol_diff.rolling(window).sum()
+        
+        # 2. Ratio
+        ratio = (sum_ho_20 / (sum_ol_20 + 1e-8)) * 100
+        
+        # 3. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_120(df: pd.DataFrame, window=30):
+        """ (RANK((VWAP - CLOSE)) / RANK((VWAP + CLOSE))) """
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Ranks
+        rank_diff = (vwap - df['close']).rolling(window).rank(pct=True)
+        rank_sum = (vwap + df['close']).rolling(window).rank(pct=True)
+        
+        # 2. Ratio
+        ratio = rank_diff / (rank_sum + 1e-8)
+        
+        # 3. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_121(df: pd.DataFrame, window=10):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term Base Rank
+        tsmin_vwap_12 = vwap.rolling(12).min()
+        rank_left = (vwap - tsmin_vwap_12).rolling(window).rank(pct=True)
+        
+        # 2. Right Term Exponent Rank
+        tsrank_vwap_20 = vwap.rolling(20).rank(pct=True)
+        mean_vol_60 = volume.rolling(60).mean()
+        tsrank_vol_2 = mean_vol_60.rolling(2).rank(pct=True)
+        
+        corr_18 = tsrank_vwap_20.rolling(18).corr(tsrank_vol_2).fillna(0)
+        rank_right = corr_18.rolling(3).rank(pct=True)
+        
+        # 3. Combine and Normalize
+        raw_signal = -1 * (rank_left ** rank_right)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_122(df: pd.DataFrame, window=20):
+        """ (SMA(SMA(SMA(LOG(CLOSE),13,2),13,2),13,2)-DELAY(SMA(SMA(SMA(LOG(CLOSE),13,2),13,2),13,2),1))/DELAY(SMA(SMA(SMA(LOG(CLOSE),13,2),13,2),13,2),1) """
+        log_close = np.log(df['close'].replace(0, np.nan)).fillna(0)
+        
+        # 1. Triple SMA computation (alpha = 2/13)
+        sma_1 = log_close.ewm(alpha=2/13, adjust=False).mean()
+        sma_2 = sma_1.ewm(alpha=2/13, adjust=False).mean()
+        sma_3 = sma_2.ewm(alpha=2/13, adjust=False).mean()
+        
+        # 2. Percent change of Triple SMA
+        delay_sma = sma_3.shift(1)
+        ratio = (sma_3 - delay_sma) / (delay_sma + 1e-8)
+        
+        # 3. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_123(df: pd.DataFrame, window=40):
+        """ ((RANK(CORR(SUM(((HIGH + LOW) / 2), 20), SUM(MEAN(VOLUME,60), 20), 9)) < RANK(CORR(LOW, VOLUME,6))) * -1) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Left Rank (A)
+        midpoint = (df['high'] + df['low']) / 2
+        sum_mid_20 = midpoint.rolling(20).sum()
+        mean_vol_60 = volume.rolling(60).mean()
+        sum_vol_20 = mean_vol_60.rolling(20).sum()
+        corr_9 = sum_mid_20.rolling(9).corr(sum_vol_20).fillna(0)
+        rank_A = corr_9.rolling(window).rank(pct=True)
+        
+        # 2. Right Rank (B)
+        corr_6 = df['low'].rolling(6).corr(volume).fillna(0)
+        rank_B = corr_6.rolling(window).rank(pct=True)
+        
+        # 3. Condition
+        cond = rank_A < rank_B
+        part = pd.Series(0.0, index=df.index)
+        part[cond] = -1.0
+        
+        # 4. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_124(df: pd.DataFrame, window=10):
+        """ (CLOSE - VWAP) / DECAYLINEAR(RANK(TSMAX(CLOSE, 30)),2) """
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Numerator
+        num = df['close'] - vwap
+        
+        # 2. Denominator decay rank
+        tsmax_30 = df['close'].rolling(30).max()
+        rank_max = tsmax_30.rolling(window).rank(pct=True)
+        decay_2 = rank_max.ewm(span=2).mean()
+        
+        # 3. Ratio and Normalize
+        ratio = num / (decay_2 + 1e-8)
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_125(df: pd.DataFrame, window=30):
+        """ (RANK(DECAYLINEAR(CORR((VWAP), MEAN(VOLUME,80),17), 20)) / RANK(DECAYLINEAR(DELTA(((CLOSE * 0.5) + (VWAP * 0.5)), 3), 16))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term Numerator Rank
+        mean_vol_80 = volume.rolling(80).mean()
+        corr_17 = vwap.rolling(17).corr(mean_vol_80).fillna(0)
+        decay_20 = corr_17.ewm(span=20).mean()
+        rank_num = decay_20.rolling(window).rank(pct=True)
+        
+        # 2. Right Term Denominator Rank
+        w_price = (df['close'] * 0.5) + (vwap * 0.5)
+        delta_3 = w_price.diff(3)
+        decay_16 = delta_3.ewm(span=16).mean()
+        rank_den = decay_16.rolling(window).rank(pct=True)
+        
+        # 3. Ratio and Normalize
+        ratio = rank_num / (rank_den + 1e-8)
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_126(df: pd.DataFrame, window=20):
+        """ (CLOSE+HIGH+LOW)/3 """
+        metric = (df['close'] + df['high'] + df['low']) / 6
+        
+        ranked_signal = metric.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_127(df: pd.DataFrame, window=20):
+        """ (MEAN((100*(CLOSE-MAX(CLOSE,12))/(MAX(CLOSE,12)))^2),12)^(1/2) """
+        max_12 = df['close'].rolling(window).max()
+        
+        # 1. Term inside mean
+        term = (100 * (df['close'] - max_12) / (max_12 + 1e-8)) ** 2
+        
+        # 2. Mean and square root (RMS)
+        mean_12 = term.rolling(window).mean()
+        rms = np.sqrt(mean_12)
+        
+        # 3. Normalize
+        ranked_signal = rms.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_128(df: pd.DataFrame, window=20):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        A = (df['high'] + df['low'] + df['close']) / 3
+        delay_A = A.shift(1)
+        
+        # 1. Conditions
+        cond_up = A > delay_A
+        cond_down = A < delay_A
+        
+        # 2. Values
+        part_up = pd.Series(0.0, index=df.index)
+        part_up[cond_up] = A * volume
+        
+        part_down = pd.Series(0.0, index=df.index)
+        part_down[cond_down] = A * volume
+        
+        # 3. 14-day Sums
+        sum_up = part_up.rolling(window).sum()
+        sum_down = part_down.rolling(window).sum()
+        
+        # 4. RSI-like formula
+        rs = sum_up / (sum_down + 1e-8)
+        metric = 100 - (100 / (1 + rs))
+        
+        # 5. Normalize
+        ranked_signal = metric.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_129(df: pd.DataFrame, window=40):
+        """ SUM((CLOSE-DELAY(CLOSE,1)<0?ABS(CLOSE-DELAY(CLOSE,1)):0),12) """
+        delta_1 = df['close'].diff(1)
+        
+        cond_down = delta_1 < 0
+        
+        part = pd.Series(0.0, index=df.index)
+        part[cond_down] = delta_1.abs()
+        
+        sum_12 = part.rolling(window).sum()
+        
+        ranked_signal = sum_12.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_130(df: pd.DataFrame, window=20):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term Numerator Rank
+        midpoint = (df['high'] + df['low']) / 2
+        mean_vol_40 = volume.rolling(40).mean()
+        corr_9 = midpoint.rolling(9).corr(mean_vol_40).fillna(0)
+        decay_10 = corr_9.ewm(span=10).mean()
+        rank_num = decay_10.rolling(window).rank(pct=True)
+        
+        # 2. Right Term Denominator Rank
+        rank_vwap = vwap.rolling(window).rank(pct=True)
+        rank_vol = volume.rolling(window).rank(pct=True)
+        corr_7 = rank_vwap.rolling(7).corr(rank_vol).fillna(0)
+        decay_3 = corr_7.ewm(span=3).mean()
+        rank_den = decay_3.rolling(window).rank(pct=True)
+        
+        # 3. Ratio and Normalize
+        ratio = rank_num / (rank_den + 1e-8)
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_131(df: pd.DataFrame, window=30):
+        """ (RANK(DELAT(VWAP, 1))^TSRANK(CORR(CLOSE,MEAN(VOLUME,50), 18), 18)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Base Rank
+        delta_1 = vwap.diff(1)
+        rank_left = delta_1.rolling(window).rank(pct=True)
+        
+        # 2. Exponent Rank
+        mean_vol_50 = volume.rolling(50).mean()
+        corr_18 = df['close'].rolling(18).corr(mean_vol_50).fillna(0)
+        rank_right = corr_18.rolling(18).rank(pct=True)
+        
+        # 3. Combine and Normalize
+        raw_signal = rank_left ** rank_right
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_132(df: pd.DataFrame, window=5):
+        """ MEAN(AMOUNT,20) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        amount = df.get('amount', df['close'] * volume)
+        
+        mean_20 = amount.rolling(20).mean()
+        
+        ranked_signal = mean_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_133(df: pd.DataFrame, window=60):
+        """ ((20-HIGHDAY(HIGH,20))/20)*100-((20-LOWDAY(LOW,20))/20)*100 """
+        # HIGHDAY and LOWDAY logic (days ago)
+        highday = df['high'].rolling(20).apply(lambda x: 19 - np.argmax(x), raw=True)
+        lowday = df['low'].rolling(20).apply(lambda x: 19 - np.argmin(x), raw=True)
+        
+        left_term = ((20 - highday) / 20) * 100
+        right_term = ((20 - lowday) / 20) * 100
+        
+        raw_signal = left_term - right_term
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_134(df: pd.DataFrame, window=1, window_rank=20):
+        """ (CLOSE-DELAY(CLOSE,12))/DELAY(CLOSE,12)*VOLUME """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        delay_12 = df['close'].shift(window)
+        ratio = (df['close'] - delay_12) / (delay_12 + 1e-8)
+        
+        raw_signal = ratio * volume
+        ranked_signal = raw_signal.rolling(window_rank).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_135(df: pd.DataFrame, window=20):
+        """ SMA(DELAY(CLOSE/DELAY(CLOSE,20),1),20,1) """
+        delay_20 = df['close'].shift(1)
+        ratio = df['close'] / (delay_20 + 1e-8)
+        
+        delay_1 = ratio.shift(1)
+        
+        sma_20 = delay_1.ewm(alpha=1/20, adjust=False).mean()
+        
+        ranked_signal = sma_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_136(df: pd.DataFrame, window=10):
+        """ ((-1 * RANK(DELTA(RET, 3))) * CORR(OPEN, VOLUME, 10)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        ret = df['close'].pct_change()
+        delta_3 = ret.diff(1)
+        rank_left = delta_3.rolling(window).rank(pct=True)
+        
+        corr_10 = df['open'].rolling(10).corr(volume).fillna(0)
+        
+        raw_signal = -1 * rank_left * corr_10
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_137(df: pd.DataFrame,window=1, window_rank=10):
+        """ Complex nested ternary expression formula """
+        delay_close = df['close'].shift(window)
+        delay_open = df['open'].shift(window)
+        delay_low = df['low'].shift(window)
+        
+        # Base terms
+        A = (df['high'] - delay_close).abs()
+        B = (df['low'] - delay_close).abs()
+        C = (df['high'] - delay_low).abs()
+        D = (delay_close - delay_open).abs()
+        
+        # Conditions
+        cond1 = (A > B) & (A > C)
+        cond2 = (B > C) & (B > A)
+        
+        # Numerator base
+        part0 = 16 * (df['close'] + (df['close'] - df['open'])/2 - delay_open)
+        
+        # Denominator via conditional logic
+        part1 = pd.Series(np.nan, index=df.index)
+        part1[cond1] = A + B/2 + D/4
+        part1[cond2] = B + A/2 + D/4
+        part1[~cond1 & ~cond2] = C + D/4
+        part1.replace({0: np.nan}, inplace=True)
+        
+        # Combine
+        max_AB = np.maximum(A, B)
+        raw_signal = (part0 / part1) * max_AB
+        
+        # Normalize
+        ranked_signal = raw_signal.rolling(window_rank).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_138(df: pd.DataFrame, window=10):
+        """ ((RANK(DECAYLINEAR(DELTA((((LOW * 0.7) + (VWAP *0.3))), 3), 20)) 
+            - TSRANK(DECAYLINEAR(TSRANK(CORR(TSRANK(LOW, 8), 
+            TSRANK(MEAN(VOLUME,60), 17), 5), 19), 16), 7)) * -1) """
+
+        # === INPUT DATA (không dùng get nữa) ===
+        volume = df['matchingVolume']
+        vwap = (df['high'] + df['low'] + df['close']) / 3
+
+        # === 1. LEFT TERM ===
+        w_price = (df['low'] * 0.7) + (vwap * 0.3)
+        delta_3 = w_price.diff(3)
+        decay_20 = delta_3.ewm(span=20, adjust=False).mean()
+        rank_left = decay_20.rolling(window).rank(pct=True)
+
+        # === 2. RIGHT TERM ===
+        tsrank_low_8 = df['low'].rolling(8).rank(pct=True)
+
+        mean_vol_60 = volume.rolling(60).mean()
+        tsrank_vol_17 = mean_vol_60.rolling(17).rank(pct=True)
+
+        corr_5 = tsrank_low_8.rolling(5).corr(tsrank_vol_17)
+        corr_5 = corr_5.fillna(0)
+
+        tsrank_corr_19 = corr_5.rolling(19).rank(pct=True)
+        decay_16 = tsrank_corr_19.ewm(span=16, adjust=False).mean()
+        tsrank_right = decay_16.rolling(7).rank(pct=True)
+
+        # === 3. COMBINE ===
+        raw_signal = -1 * (rank_left - tsrank_right)
+
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_139(df: pd.DataFrame, window=40):
+        """ (-1 * CORR(OPEN, VOLUME, 10)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        corr_10 = df['open'].rolling(window).corr(volume).fillna(0)
+        
+        raw_signal = -1 * corr_10
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_140(df: pd.DataFrame, window=20):
+        """ MIN(RANK(DECAYLINEAR(((RANK(OPEN) + RANK(LOW)) - (RANK(HIGH) + RANK(CLOSE))), 8)), TSRANK(DECAYLINEAR(CORR(TSRANK(CLOSE, 8), TSRANK(MEAN(VOLUME,60), 20), 8), 7), 3)) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Left Term Rank
+        rank_open = df['open'].rolling(window).rank(pct=True)
+        rank_low = df['low'].rolling(window).rank(pct=True)
+        rank_high = df['high'].rolling(window).rank(pct=True)
+        rank_close = df['close'].rolling(window).rank(pct=True)
+        
+        term1 = (rank_open + rank_low) - (rank_high + rank_close)
+        decay_8 = term1.ewm(span=8).mean()
+        rank_left = decay_8.rolling(window).rank(pct=True)
+        
+        # 2. Right Term Rank
+        tsrank_close_8 = df['close'].rolling(8).rank(pct=True)
+        mean_vol_60 = volume.rolling(60).mean()
+        tsrank_vol_20 = mean_vol_60.rolling(20).rank(pct=True)
+        
+        corr_8 = tsrank_close_8.rolling(8).corr(tsrank_vol_20).fillna(0)
+        decay_7 = corr_8.ewm(span=7).mean()
+        tsrank_right = decay_7.rolling(3).rank(pct=True)
+        
+        # 3. Minimum and Normalize
+        min_rank = np.minimum(rank_left, tsrank_right)
+        ranked_signal = min_rank.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_141(df: pd.DataFrame, window=20):
+        """ (RANK(CORR(RANK(HIGH), RANK(MEAN(VOLUME,15)), 9))* -1) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. High Rank
+        rank_high = df['high'].rolling(window).rank(pct=True)
+        
+        # 2. Volume Rank
+        mean_vol_15 = volume.rolling(15).mean()
+        rank_vol_15 = mean_vol_15.rolling(window).rank(pct=True)
+        
+        # 3. Correlation and Normalize
+        corr_9 = rank_high.rolling(9).corr(rank_vol_15).fillna(0)
+        rank_corr = corr_9.rolling(window).rank(pct=True)
+        
+        raw_signal = -1 * rank_corr
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_142(df: pd.DataFrame, window=10):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. First Term Rank
+        tsrank_close_10 = df['close'].rolling(10).rank(pct=True)
+        rank_1 = -1 * tsrank_close_10.rolling(window).rank(pct=True)
+        
+        # 2. Second Term Rank
+        delta_1 = df['close'].diff(1)
+        delta_delta = delta_1.diff(1)
+        rank_2 = delta_delta.rolling(window).rank(pct=True)
+        
+        # 3. Third Term Rank
+        mean_vol_20 = volume.rolling(20).mean()
+        ratio = volume / (mean_vol_20 + 1e-8)
+        tsrank_ratio_5 = ratio.rolling(5).rank(pct=True)
+        rank_3 = tsrank_ratio_5.rolling(window).rank(pct=True)
+        
+        # 4. Multiplicative Combination and Normalize
+        raw_signal = rank_1 * rank_2 * rank_3
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_143(df: pd.DataFrame, window=20):
+        close = df['close'].values
+        prev_close = O.ts_lag(df['close'], 1).values
+        returns = (close - prev_close) / (prev_close + 1e-8)
+        alpha_values = np.ones(len(df)) 
+        
+        for i in range(1, len(df)):
+            if close[i] > prev_close[i]:
+                alpha_values[i] = alpha_values[i-1] * (1 + returns[i])
+            else:
+                alpha_values[i] = alpha_values[i-1]
+        
+        raw_signal = pd.Series(alpha_values, index=df.index)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_144(df: pd.DataFrame, window=20):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        amount = df.get('amount', df['close'] * volume)
+        
+        delay_1 = df['close'].shift(1)
+        
+        # 1. Condition
+        cond_down = df['close'] < delay_1
+        
+        # 2. Term to average
+        part = pd.Series(0.0, index=df.index)
+        part[cond_down] = ((df['close'] / (delay_1 + 1e-8)) - 1).abs() / (amount + 1e-8)
+        
+        # 3. Sum and Count (Average)
+        sum_20 = part.rolling(window).sum()
+        count_20 = cond_down.rolling(window).sum()
+        
+        ratio = sum_20 / (count_20 + 1e-8)
+        
+        # 4. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_145(df: pd.DataFrame, window=20):
+        """ (MEAN(VOLUME,9)-MEAN(VOLUME,26))/MEAN(VOLUME,12)*100 """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Volume means
+        mean_9 = volume.rolling(9).mean()
+        mean_26 = volume.rolling(26).mean()
+        mean_12 = volume.rolling(12).mean()
+        
+        # 2. Ratio
+        ratio = (mean_9 - mean_26) / (mean_12 + 1e-8) * 100
+        
+        # 3. Normalize
+        ranked_signal = ratio.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+    @staticmethod
+    def alpha_popbo_146(df: pd.DataFrame, window=5):
+        ret = df['close'].pct_change(1).fillna(0)
+        
+        # 1. Returns vs SMA deviation
+        sma_61 = ret.ewm(alpha=2/61, adjust=False).mean()
+        diff_ret_sma = ret - sma_61
+        
+        # 2. Numerator terms
+        mean_diff_20 = diff_ret_sma.rolling(20).mean()
+        
+        # 3. Denominator terms
+        denom_inner_squared = (ret - diff_ret_sma) ** 2
+        sma_sq_61 = denom_inner_squared.ewm(alpha=2/61, adjust=False).mean()
+        
+        # 4. Ratio and Normalize
+        raw_signal = (mean_diff_20 * diff_ret_sma) / (sma_sq_61 + 1e-8)
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_147(df: pd.DataFrame, window=20):
+        """ REGBETA(MEAN(CLOSE,12),SEQUENCE(12)) """
+        mean_close_12 = df['close'].rolling(12).mean()
+        
+        # 1. Rolling Beta
+        def rolling_regbeta(y):
+            if len(y) < 12: return np.nan
+            x = np.arange(12)
+            var_x = np.var(x, ddof=1)
+            if var_x == 0: return 0
+            cov_xy = np.cov(x, y)[0, 1]
+            return cov_xy / var_x
+            
+        beta_12 = mean_close_12.rolling(12).apply(rolling_regbeta, raw=True)
+        
+        # 2. Normalize
+        ranked_signal = beta_12.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_148(df: pd.DataFrame, window=20):
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Left Rank
+        mean_vol_60 = volume.rolling(60).mean()
+        sum_9 = mean_vol_60.rolling(9).sum()
+        corr_6 = df['open'].rolling(6).corr(sum_9).fillna(0)
+        rank_left = corr_6.rolling(window).rank(pct=True)
+        
+        # 2. Right Rank
+        tsmin_open_14 = df['open'].rolling(14).min()
+        rank_right = (df['open'] - tsmin_open_14).rolling(window).rank(pct=True)
+        
+        # 3. Condition
+        cond = rank_left < rank_right
+        part = pd.Series(0.0, index=df.index)
+        part[cond] = -1.0
+        
+        # 4. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_149(df: pd.DataFrame, window=20):
+     
+        asset_ret = (df['close'] / O.ts_lag(df['close'], 1)) - 1
+        
+        market_ret = asset_ret.rolling(window).mean()
+        
+        covariance = asset_ret.rolling(window).cov(market_ret)
+        variance = market_ret.rolling(window).var()
+        
+      
+        raw_beta = covariance / (variance + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(raw_beta, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+    
+
+    @staticmethod
+    def alpha_popbo_150(df: pd.DataFrame, window=20):
+        """ (CLOSE+HIGH+LOW)/3*VOLUME """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Volume weighted price
+        raw_signal = (df['close'] + df['high'] + df['low']) / 3 * volume
+        
+        # 2. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_151(df: pd.DataFrame, window=1, window_rank=10):
+        """ SMA(CLOSE-DELAY(CLOSE,20),20,1) """
+        delta_20 = df['close'].diff(window)
+        
+        # 1. 20-day SMA of momentum
+        sma_20 = delta_20.ewm(alpha=window/window_rank, adjust=False).mean()
+        
+        # 2. Normalize
+        ranked_signal = sma_20.rolling(window_rank).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_152(df: pd.DataFrame, window=20):
+        ratio = df['close'] / (df['close'].shift(1) + 1e-8)
+        delay_ratio = ratio.shift(1)
+        
+        # 1. First SMA
+        sma_ratio = delay_ratio.ewm(alpha=1/9, adjust=False).mean()
+        delay_sma = sma_ratio.shift(1)
+        
+        # 2. MACD-like means
+        mean_12 = delay_sma.rolling(12).mean()
+        mean_26 = delay_sma.rolling(26).mean()
+        diff = mean_12 - mean_26
+        
+        # 3. Final SMA
+        sma_final = diff.ewm(alpha=1/9, adjust=False).mean()
+        
+        # 4. Normalize
+        ranked_signal = sma_final.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_153(df: pd.DataFrame, window=20):
+        """ (MEAN(CLOSE,3)+MEAN(CLOSE,6)+MEAN(CLOSE,12)+MEAN(CLOSE,24))/4 """
+        # 1. Multiple moving averages
+        mean_3 = df['close'].rolling(3).mean()
+        mean_6 = df['close'].rolling(6).mean()
+        mean_12 = df['close'].rolling(12).mean()
+        mean_24 = df['close'].rolling(24).mean()
+        
+        # 2. Average of averages
+        raw_signal = (mean_3 + mean_6 + mean_12 + mean_24) / 4
+        
+        # 3. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_154(df: pd.DataFrame, window=20):
+        """ (((VWAP - MIN(VWAP, 16))) < (CORR(VWAP, MEAN(VOLUME,180), 18))) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term
+        min_vwap_16 = vwap.rolling(16).min()
+        term_left = vwap - min_vwap_16
+        
+        # 2. Right Term
+        mean_vol_180 = volume.rolling(180).mean()
+        term_right = vwap.rolling(18).corr(mean_vol_180).fillna(0)
+        
+        # 3. Condition
+        cond = term_left < term_right
+        part = pd.Series(0.0, index=df.index)
+        part[cond] = 1.0
+        
+        # 4. Normalize
+        ranked_signal = part.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_155(df: pd.DataFrame, window=20):
+        """ SMA(VOLUME,13,2)-SMA(VOLUME,27,2)-SMA(SMA(VOLUME,13,2)-SMA(VOLUME,27,2),10,2) """
+        volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
+        
+        # 1. Volume SMAs
+        sma_13 = volume.ewm(alpha=2/13, adjust=False).mean()
+        sma_27 = volume.ewm(alpha=2/27, adjust=False).mean()
+        diff = sma_13 - sma_27
+        
+        # 2. SMA of difference
+        sma_diff_10 = diff.ewm(alpha=2/10, adjust=False).mean()
+        
+        # 3. MACD histogram structure
+        raw_signal = diff - sma_diff_10
+        
+        # 4. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_156(df: pd.DataFrame, window=20):
+        vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
+        
+        # 1. Left Term Rank
+        delta_vwap_5 = vwap.diff(5)
+        decay_3_left = delta_vwap_5.ewm(span=3).mean()
+        rank_left = decay_3_left.rolling(window).rank(pct=True)
+        
+        # 2. Right Term Rank
+        price_w = (df['open'] * 0.15) + (df['low'] * 0.85)
+        delta_price_w_2 = price_w.diff(2)
+        metric = -1 * (delta_price_w_2 / (price_w + 1e-8))
+        decay_3_right = metric.ewm(span=3).mean()
+        rank_right = decay_3_right.rolling(window).rank(pct=True)
+        
+        # 3. Max and Normalize
+        max_rank = np.maximum(rank_left, rank_right)
+        raw_signal = -1 * max_rank
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_157(df: pd.DataFrame, window=20):
+        delta_5 = (df['close'] - 1).diff(1)
+        rank_1 = delta_5.rolling(window).rank(pct=True)
+        rank_2 = (-1 * rank_1).rolling(window).rank(pct=True)
+        rank_3 = rank_2.rolling(window).rank(pct=True)
+        
+        tsmin_2 = rank_3.rolling(window).min()
+        sum_1 = tsmin_2.rolling(window).sum()
+        
+        log_val = np.log(np.maximum(sum_1, 1e-5))
+        rank_4 = log_val.rolling(window).rank(pct=True)
+        rank_5 = rank_4.rolling(window).rank(pct=True)
+        
+        prod_1 = rank_5.rolling(window).apply(np.prod, raw=True)
+        min_5 = prod_1.rolling(window).min()
+        
+        # Right term
+        ret = df['close'].pct_change(1).fillna(0)
+        delay_ret_6 = (-1 * ret).shift(1)
+        tsrank_5 = delay_ret_6.rolling(window).rank(pct=True)
+        
+        # Combine and Normalize
+        raw_signal = min_5 + tsrank_5
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+        
+
+    @staticmethod
+    def alpha_popbo_158(df: pd.DataFrame, window=15):
+        """ ((HIGH-SMA(CLOSE,15,2))-(LOW-SMA(CLOSE,15,2)))/CLOSE """
+        sma_15 = df['close'].ewm(alpha=5/window, adjust=False).mean()
+        
+        # 1. Deviations from SMA
+        term1 = df['high'] - sma_15
+        term2 = df['low'] - sma_15
+        
+        # 2. Ratio
+        raw_signal = (term1 - term2) / (df['close'] + 1e-8)
+        
+        # 3. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_159(df: pd.DataFrame, window=10):
+        """ Complex accumulation of terms over 6, 12, 24 periods """
+        delay_1 = df['close'].shift(1)
+        
+        lower = np.minimum(df['low'], delay_1)
+        upper = np.maximum(df['high'], delay_1)
+        tr = upper - lower
+        
+        # 1. 6-day
+        sum_lower_6 = lower.rolling(6).sum()
+        sum_tr_6 = tr.rolling(6).sum()
+        term_6 = (df['close'] - sum_lower_6) / (sum_tr_6 + 1e-8) * 12 * 24
+        
+        # 2. 12-day
+        sum_lower_12 = lower.rolling(12).sum()
+        sum_tr_12 = tr.rolling(12).sum()
+        term_12 = (df['close'] - sum_lower_12) / (sum_tr_12 + 1e-8) * 6 * 24
+        
+        # 3. 24-day
+        sum_lower_24 = lower.rolling(24).sum()
+        sum_tr_24 = tr.rolling(24).sum()
+        term_24 = (df['close'] - sum_lower_24) / (sum_tr_24 + 1e-8) * 6 * 12
+        
+        # 4. Weighted Combine
+        raw_signal = (term_6 + term_12 + term_24) * 100 / (6*12 + 6*24 + 12*24)
+        
+        # 5. Normalize
+        ranked_signal = raw_signal.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_160(df: pd.DataFrame, window=20):
+        """ SMA((CLOSE<=DELAY(CLOSE,1)?STD(CLOSE,20):0),20,1) """
+        delay_close_1 = df['close'].shift(1)
+        
+        # 1. Condition
+        cond = df['close'] <= delay_close_1
+        
+        # 2. Conditional Values
+        std_20 = df['close'].rolling(20).std()
+        part = pd.Series(0.0, index=df.index)
+        part[cond] = std_20
+        
+        # 3. SMA
+        sma_20 = part.ewm(alpha=1/20, adjust=False).mean()
+        
+        # 4. Normalize
+        ranked_signal = sma_20.rolling(window).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_161(df: pd.DataFrame, window=20):
+        
+        h_l = df['high'] - df['low']
+        prev_close = O.ts_lag(df['close'], 1)
+        
+        pc_h = (prev_close - df['high']).abs()
+        pc_l = (prev_close - df['low']).abs()
+        
+        tr = np.maximum(h_l, np.maximum(pc_h, pc_l))
+        
+        raw_atr = O.ts_mean(tr, 12)
+        
+        ranked_signal = O.ts_rank_normalized(raw_atr, window)
+        
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_162(df: pd.DataFrame,window = 1, window_rank=10):
+       
+        delta = df['close'].diff(window)
+        gain = np.maximum(delta, 0)
+        loss = delta.abs()
+        
+        avg_gain = gain.ewm(alpha=1/window_rank, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1/window_rank, adjust=False).mean()
+        
+        rsi = (avg_gain / (avg_loss + 1e-8)) * 100
+        
+        min_rsi = O.ts_min(rsi, window_rank)
+        max_rsi = O.ts_max(rsi, window_rank)
+        
+        raw_stoch_rsi = (rsi - min_rsi) / (max_rsi - min_rsi + 1e-8)
+        
+        
+        ranked_signal = O.ts_rank_normalized(raw_stoch_rsi, window_rank)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_163(df: pd.DataFrame, window=10):
+        volume = df.get('volume', df.get('matchingVolume'))
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        
+        rev_ret = -1 * df['close'].pct_change(1)
+        
+        avg_vol = O.ts_mean(volume, 10)
+        
+        selling_pressure = df['high'] - df['close']
+        
+      
+        raw_signal = rev_ret * avg_vol * vwap * selling_pressure
+        
+      
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_164(df: pd.DataFrame, window=20):
+      
+        delta_close = df['close'] - O.ts_lag(df['close'], 1)
+        
+        part = np.where(delta_close > 0, 1 / (delta_close + 1e-8), 1.0)
+        part = pd.Series(part, index=df.index)
+        
+       
+        range_hl = (df['high'] - df['low']).replace(0, np.nan)
+        
+        min_part_12 = O.ts_min(part, 12)
+        core_expr = (part - min_part_12) / range_hl * 100
+        
+        raw_signal = core_expr.ewm(span=13).mean() 
+        
+        # 5. Chuẩn hóa về dải -1 đến 1
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_165(df: pd.DataFrame, window=48):
+        mean_48 = O.ts_mean(df['close'], window)
+        deviation = df['close'] - mean_48
+        
+        cusum_dev = deviation.rolling(window).sum() 
+       
+        p1 = cusum_dev.rolling(window).max()
+        p2 = cusum_dev.rolling(window).min()
+        rs_range = p1 - p2
+        
+        std_48 = O.ts_std(df['close'], window)
+        
+        # R/S Ratio
+        raw_signal = rs_range / (std_48 + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        # Đảo chiều theo logic gốc của bạn (-1 *)
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_166(df: pd.DataFrame, window=20):
+        
+        returns = (df['close'] / O.ts_lag(df['close'], 1)) - 1
+        
+        mean_ret = O.ts_mean(returns, window)
+        diff = returns - mean_ret
+        p1 = O.ts_sum(diff**3, window)
+        
+        std_ret = O.ts_std(returns, window)
+        p2 = (std_ret**3) * (window - 1) * (window - 2) / window
+        
+        raw_skew = p1 / (p2 + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(raw_skew, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_167(df: pd.DataFrame, window=40):
+        delta_close = df['close'] - O.ts_lag(df['close'], 1)
+    
+        positive_flow = np.where(delta_close > 0, delta_close, 0.0)
+        positive_flow = pd.Series(positive_flow, index=df.index)
+        
+        raw_sum = O.ts_sum(positive_flow, 12)
+        
+        ranked_signal = O.ts_rank_normalized(raw_sum, window)
+        
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_168(df: pd.DataFrame, window=20):
+      
+        volume = df.get('volume', df.get('matchingVolume'))
+        
+        avg_vol_20 = O.ts_mean(volume, 20)
+        
+        raw_ratio = volume / (avg_vol_20 + 1e-8)
+        ranked_signal = O.ts_rank_normalized(raw_ratio, window)
+        
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_169(df: pd.DataFrame, window=20):
+        delta_close = df['close'] - O.ts_lag(df['close'], 1)
+        
+        smooth_delta = delta_close.ewm(alpha=1/9, adjust=False).mean()
+        
+        delayed_smooth = O.ts_lag(smooth_delta, 1)
+        
+        fast_ma = O.ts_mean(delayed_smooth, 12)
+        slow_ma = O.ts_mean(delayed_smooth, 26)
+        macd_line = fast_ma - slow_ma
+        
+        raw_signal = macd_line.ewm(alpha=1/10, adjust=False).mean()
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_170(df: pd.DataFrame, window=1, window_rank=20):
+       
+        rank_inv_close = O.ts_rank_normalized(1 / (df['close'] + 1e-8), window_rank)
+        
+        vol = df.get('volume', df.get('matchingVolume'))
+        vol_ratio = vol / (O.ts_mean(vol, 20) + 1e-8)
+        
+        high_rank_pressure = O.ts_rank_normalized(df['high'] - df['close'], window_rank)
+        avg_high_5 = O.ts_mean(df['high'], window)
+        relative_high = (df['high'] * high_rank_pressure) / (avg_high_5 + 1e-8)
+        
+        left_term = (rank_inv_close * vol_ratio) * relative_high
+     
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        vwap_delta = vwap - O.ts_lag(vwap, window)
+        right_term = O.ts_rank_normalized(vwap_delta, window_rank)
+        
+        raw_signal = left_term - right_term
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window_rank)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_171(df: pd.DataFrame, window=40):
+        
+        lower_part = df['low'] - df['close']
+        
+        upper_part = df['close'] - df['high']
+        
+        price_ratio = (df['open'] / (df['close'] + 1e-8)) ** 5
+        
+        
+        raw_signal = (-1 * (lower_part * price_ratio)) / (upper_part - 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_172(df: pd.DataFrame, window=20):
+        prev_close = O.ts_lag(df['close'], 1)
+        h_l = df['high'] - df['low']
+        h_pc = (df['high'] - prev_close).abs()
+        l_pc = (df['low'] - prev_close).abs()
+        tr = np.maximum(h_l, np.maximum(h_pc, l_pc))
+        sum_tr_14 = O.ts_sum(tr, 14)
+        
+        hd = df['high'] - O.ts_lag(df['high'], 1)
+        ld = O.ts_lag(df['low'], 1) - df['low']
+        
+        plus_dm = np.where((hd > 0) & (hd > ld), hd, 0.0)
+        minus_dm = np.where((ld > 0) & (ld > hd), ld, 0.0)
+        
+        plus_di = O.ts_sum(pd.Series(plus_dm, index=df.index), 14) * 100 / (sum_tr_14 + 1e-8)
+        minus_di = O.ts_sum(pd.Series(minus_dm, index=df.index), 14) * 100 / (sum_tr_14 + 1e-8)
+        
+        # 4. Tính DX (Directional Movement Index)
+        dx = (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-8) * 100
+        
+        raw_adx = O.ts_mean(dx, 6)
+        
+        ranked_signal = O.ts_rank_normalized(raw_adx, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_173(df: pd.DataFrame, window=5):
+        def quick_sma(series, n=40):
+            return series.ewm(span=n, adjust=False).mean()
+
+        ema1 = quick_sma(df['close'], 40)
+        
+        ema2 = quick_sma(ema1, 40)
+        
+        ema3_log = quick_sma(quick_sma(quick_sma(np.log1p(df['close']), 40), 40), 40)
+        ema3 = np.exp(ema3_log) - 1
+        
+        raw_tema_variant = (3 * ema1) - (2 * ema2) + ema3
+        
+        
+        price_diff = df['close'] - raw_tema_variant
+        
+        ranked_signal = O.ts_rank_normalized(price_diff, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_174(df: pd.DataFrame, window=5):
+        prev_close = O.ts_lag(df['close'], 1)
+        cond = df['close'] > prev_close
+        
+        std_20 = O.ts_std(df['close'], 5)
+        
+        upside_vol = np.where(cond, std_20, 0.0)
+        upside_vol_series = pd.Series(upside_vol, index=df.index)
+        
+        raw_signal = upside_vol_series.ewm(alpha=1/5, adjust=False).mean()
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_175(df: pd.DataFrame, window=40):
+        
+        prev_close = O.ts_lag(df['close'], 1)
+        h_l = df['high'] - df['low']
+        h_pc = (df['high'] - prev_close).abs()
+        l_pc = (df['low'] - prev_close).abs()
+        
+        tr = np.maximum(h_l, np.maximum(h_pc, l_pc))
+        
+        raw_atr_6 = O.ts_mean(pd.Series(tr, index=df.index), 6)
+        
+        
+        ranked_signal = O.ts_rank_normalized(raw_atr_6, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_176(df: pd.DataFrame, window=20):
+       
+        low_12 = O.ts_min(df['low'], 12)
+        high_12 = O.ts_max(df['high'], 12)
+        
+        stoch_k = (df['close'] - low_12) / (high_12 - low_12 + 1e-8)
+        
+        rank_stoch = O.ts_rank_normalized(stoch_k, window)
+        
+        volume = df.get('volume', df.get('matchingVolume'))
+        rank_volume = O.ts_rank_normalized(volume, window)
+        
+        raw_corr = O.ts_corr(rank_stoch, rank_volume, 6)
+        
+        return raw_corr.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_177(df: pd.DataFrame, window=20):
+        peak_index = O.ts_argmax(df['high'], window) - 1
+        
+        days_since_high = (window - 1) - peak_index
+        
+        aroon_up = ((window - days_since_high) / window) * 100
+        
+        ranked_signal = O.ts_rank_normalized(aroon_up, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_178(df: pd.DataFrame,window=1, window_rank=20):
+        returns = (df['close'] - O.ts_lag(df['close'], window)) / (O.ts_lag(df['close'], 1) + 1e-8)
+        
+        volume = df.get('volume', df.get('matchingVolume'))
+        raw_flow = returns * volume
+        
+        ranked_signal = O.ts_rank_normalized(raw_flow, window_rank)
+        
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    
+
+    @staticmethod
+    def alpha_popbo_179(df: pd.DataFrame, window=20):
+      
+        volume = df.get('volume', df.get('matchingVolume'))
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        corr_vwap_vol = O.ts_corr(vwap, volume, 4)
+        rank_corr1 = O.ts_rank_normalized(corr_vwap_vol, window)
+        
+        
+        rank_low = O.ts_rank_normalized(df['low'], window)
+        rank_avg_vol_50 = O.ts_rank_normalized(O.ts_mean(volume, 50), window)
+        
+        corr_low_vol50 = O.ts_corr(rank_low, rank_avg_vol_50, 12)
+        rank_corr2 = O.ts_rank_normalized(corr_low_vol50, window)
+     
+        raw_signal = rank_corr1 * rank_corr2
+        
+        final_rank = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * final_rank) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_180(df: pd.DataFrame, window=20):
+    
+        vol = df.get('volume', df.get('matchingVolume'))
+        avg_vol_20 = O.ts_mean(vol, 20)
+        
+        cond = vol > avg_vol_20
+
+        delta_7 = O.ts_delta(df['close'], 7)
+        rank_abs_delta = O.ts_rank_normalized(delta_7.abs(), 60)
+        high_vol_signal = -1 * rank_abs_delta * O.sign(delta_7)
+        
+        low_vol_signal = -1 * O.ts_rank_normalized(vol, window)
+        
+        # --- Kết hợp ---
+        raw_signal = np.where(cond, high_vol_signal, low_vol_signal)
+        raw_signal = pd.Series(raw_signal, index=df.index)
+        
+        final_rank = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * final_rank) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_181(df: pd.DataFrame, window=20):
+        
+        ret_asset = (df['close'] / O.ts_lag(df['close'], 1)) - 1
+        
+        mean_ret = O.ts_mean(ret_asset, window)
+        excess = ret_asset - mean_ret
+        
+        numerator = O.ts_sum(O.sign(excess) * (excess ** 2), window)
+        
+        denominator = O.ts_sum(excess ** 3, window)
+        
+        raw_signal = numerator / (denominator + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_182(df: pd.DataFrame, window=20):
+       
+        asset_up = df['close'] > df['open']
+        asset_down = df['close'] < df['open']
+        
+        sma_20 = O.ts_mean(df['close'], 20)
+        market_up = sma_20 > O.ts_lag(sma_20, 1)
+        market_down = sma_20 < O.ts_lag(sma_20, 1)
+        
+        sync_condition = (asset_up & market_up) | (asset_down & market_down)
+        
+        sync_count = pd.Series(sync_condition.astype(int), index=df.index).rolling(window).sum()
+        
+        raw_ratio = sync_count / window
+       
+        ranked_signal = O.ts_rank_normalized(raw_ratio, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_183(df: pd.DataFrame, window=24):
+        
+        def get_rs_range(x):
+            cumsum = np.cumsum(x - np.mean(x))
+            return np.max(cumsum) - np.min(cumsum)
+
+        r_range = df['close'].rolling(window).apply(get_rs_range, raw=True)
+        
+        s_std = O.ts_std(df['close'], 24)
+        
+        rs_ratio = r_range / (s_std + 1e-8)
+        
+       
+        ranked_signal = O.ts_rank_normalized(rs_ratio, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_184(df: pd.DataFrame, window=20):
+        candle_range = df['open'] - df['close']
+        lagged_range = O.ts_lag(candle_range, 1)
+      
+        corr_long_term = O.ts_corr(lagged_range, df['close'], 200)
+        rank_corr = O.ts_rank_normalized(corr_long_term, window)
+        
+        rank_current_range = O.ts_rank_normalized(candle_range, window)
+        
+        raw_signal = rank_corr + rank_current_range
+        
+        final_rank = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * final_rank) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_185(df: pd.DataFrame, window=20):
+        
+        body_relative_range = 1 - (df['open'] / (df['close'] + 1e-8))
+        
+        raw_signal = -1 * (body_relative_range ** 2)
+        
+       
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_186(df: pd.DataFrame, window=20):
+        prev_close = O.ts_lag(df['close'], 1)
+        h_l = df['high'] - df['low']
+        h_pc = (df['high'] - prev_close).abs()
+        l_pc = (df['low'] - prev_close).abs()
+        tr = np.maximum(h_l, np.maximum(h_pc, l_pc))
+        sum_tr_14 = O.ts_sum(tr, 14)
+        
+        # 2. Tính Directional Movement (HD và LD)
+        hd = df['high'] - O.ts_lag(df['high'], 1)
+        ld = O.ts_lag(df['low'], 1) - df['low']
+        
+        # Lọc tín hiệu +DM và -DM (Dùng np.where thay cho copy/loc)
+        plus_dm = pd.Series(np.where((hd > 0) & (hd > ld), hd, 0.0), index=df.index)
+        minus_dm = pd.Series(np.where((ld > 0) & (ld > hd), ld, 0.0), index=df.index)
+        
+        # 3. Tính DI+ và DI-
+        plus_di = O.ts_sum(plus_dm, 14) * 100 / (sum_tr_14 + 1e-8)
+        minus_di = O.ts_sum(minus_dm, 14) * 100 / (sum_tr_14 + 1e-8)
+        
+        # 4. Tính DX và ADX (Mean 6)
+        dx = (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-8) * 100
+        adx_current = O.ts_mean(dx, 6)
+        
+        # 5. Lấy trung bình ADX hiện tại và ADX trễ 6 phiên
+        adx_lagged = O.ts_lag(adx_current, 6)
+        raw_signal = (adx_current + adx_lagged) / 2
+        
+        # 6. Chuẩn hóa về dải -1 đến 1
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_187(df: pd.DataFrame, window=20):
+        
+        prev_open = O.ts_lag(df['open'], 1)
+        
+        cond = df['open'] > prev_open
+        
+       
+        impulse = np.maximum((df['high'] - df['open']), (df['open'] - prev_open))
+        
+        bull_movement = np.where(cond, impulse, 0.0)
+        bull_movement_series = pd.Series(bull_movement, index=df.index)
+        
+        raw_sum = O.ts_sum(bull_movement_series, 20)
+        
+       
+        ranked_signal = O.ts_rank_normalized(raw_sum, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_188(df: pd.DataFrame, window=20):
+      
+        hl_range = df['high'] - df['low']
+        avg_range = O.ts_mean(hl_range, 11)
+        
+        raw_deviation = ((hl_range - avg_range) / (avg_range + 1e-8)) * 100
+      
+        ranked_signal = O.ts_rank_normalized(raw_deviation, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_189(df: pd.DataFrame, window=20):
+        
+        ma_6 = O.ts_mean(df['close'], 6)
+        
+        abs_deviation = (df['close'] - ma_6).abs()
+        
+        raw_mad = O.ts_mean(abs_deviation, 6)
+       
+        ranked_signal = O.ts_rank_normalized(raw_mad, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_190(df: pd.DataFrame, window=20):
+        
+        ret = (df['close'] / O.ts_lag(df['close'], 1)) - 1
+        
+        target_ret = (df['close'] / O.ts_lag(df['close'], 19))**(1/20) - 1
+        
+        diff = ret - target_ret
+        diff_sq = diff**2
+        
+        upside_mask = ret > target_ret
+        upside_sum_sq = pd.Series(np.where(upside_mask, diff_sq, 0.0), index=df.index).rolling(window).sum()
+        upside_count = pd.Series(upside_mask.astype(int), index=df.index).rolling(window).sum()
+        
+        downside_mask = ret < target_ret
+        downside_sum_sq = pd.Series(np.where(downside_mask, diff_sq, 0.0), index=df.index).rolling(window).sum()
+        downside_count = pd.Series(downside_mask.astype(int), index=df.index).rolling(window).sum()
+        
+        
+        numerator = (upside_count - 1) * downside_sum_sq
+        denominator = downside_count * upside_sum_sq
+        
+        raw_ratio = np.log((numerator + 1e-6) / (denominator + 1e-6))
+        raw_ratio = pd.Series(raw_ratio, index=df.index)
+        
+        ranked_signal = O.ts_rank_normalized(raw_ratio, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_191(df: pd.DataFrame, window=20):
+        
+        vol = df.get('volume', df.get('matchingVolume'))
+        
+        corr_vol_low = O.ts_corr(O.ts_mean(vol, 20), df['low'], 5)
+        
+        
+        mid_price = (df['high'] + df['low']) / 2
+        price_bias = (mid_price - df['close']) / (df['close'] + 1e-8)
+        
+        raw_signal = corr_vol_low + price_bias
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
 class Domains:
     @staticmethod
     def compute_vwap(df, window=200):
@@ -4806,14 +8769,16 @@ class Domains:
             "alpha_new_003_v1","alpha_new_003_v2","alpha_new_003_v3","alpha_new_003_v4","alpha_new_003_v5",
             "alpha_new_005_up1","alpha_new_008_v1","alpha_new_008_v2","alpha_new_008_v3","alpha_new_008_v4","alpha_new_008_v5",
             'alpha_full_factor_062_zscore_clipping',"alpha_full_factor_095_regime_adaptive", 'alpha_full_factor_066_liq_accel',
-            'alpha_full_factor_090_reg_adaptive', 'alpha_full_factor_099_eff_macd'
+            'alpha_full_factor_090_reg_adaptive', 'alpha_full_factor_099_eff_macd', 'alpha_full_factor_046_dynamic_reversion',
+            'alpha_full_factor_007_volume_breakout_trend', 'alpha_full_factor_085_rank_vol_efficiency', 'alpha_full_factor_b08_signed_power_compress'
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
         new_alpha_list = [f"alpha_new_{str(name).rjust(3, '0')}" for name in list(range(1, 101))]
         alpha_full_factor = [f"alpha_full_factor_{str(i).rjust(3, '0')}" for i in range(1, 110)]
+        alpha_popbo = [f"alpha_popbo_{str(i).rjust(3, '0')}" for i in range(1, 199)]
         
-        for alpha_name in base_list + custom_c_list + new_alpha_list + alpha_full_factor:
+        for alpha_name in base_list + custom_c_list + new_alpha_list + alpha_full_factor + alpha_popbo:
             if isinstance(alpha_name, int):
                 alpha_name = str(alpha_name).rjust(3, '0')
             if not alpha_name.startswith('alpha_'):

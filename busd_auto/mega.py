@@ -71,7 +71,7 @@ def os_wfa_backtest(id, start, end):
     if insample:
         df = load_data(start=start, end=end, source=source)
         in_report = mega_backtest(df, start, end)
-    if data_end <= 20260101:
+    if data_end <= 20260401:
         df = load_data(start=data_start, end=data_end, source=source)
         report = mega_backtest(df, data_start, data_end)
     else:

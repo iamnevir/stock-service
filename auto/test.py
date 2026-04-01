@@ -4,7 +4,8 @@ from utils import get_mongo_uri
 client = MongoClient(get_mongo_uri())
 db = client["alpha"]
 collection = db["correlation_results"]
-
+collection.drop()
+collection = db["correlation_results"]
 # Index (_id_) MongoDB tự tạo, không cần tạo lại
 
 # Index: x_1_y_1_c_1

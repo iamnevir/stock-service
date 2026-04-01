@@ -886,55 +886,16 @@ if __name__ == "__main__":
         upload_results = {}
     time_ranges = generate_time_ranges(MODE)
     alpha_list = [
-        # "alpha_full_factor_062",
-        # "alpha_full_factor_095"
-        
-        # "alpha_full_factor_100",
-        # "alpha_full_factor_101"
-        
-        # "alpha_full_factor_066",
-        
-        # "alpha_full_factor_080",
-        # "alpha_full_factor_072",
-        # "alpha_full_factor_090",
-        # "alpha_full_factor_092",
-        
-        # "alpha_full_factor_093",
-        # "alpha_full_factor_098"
-        
-        # "alpha_full_factor_099",
-        
-        # "alpha_full_factor_100",
-        # "alpha_full_factor_101"
-
-        #huy
-        # 'alpha_full_factor_007',
-        # 'alpha_full_factor_031',
-        # 'alpha_full_factor_034',
-        # 'alpha_full_factor_046', #window 5-200-5
-        # 'alpha_full_factor_066', #window 10-100-10 factor 1-4-1
-        # 'alpha_full_factor_080', #window 10-100-10 factor 10-40-10
-        # 'alpha_full_factor_099', #fast 6-24-6 slow 24-84-6
-        # 'alpha_full_factor_100', #window_short 12-24-6 window_long 24-180-12 
-        # 'alpha_full_factor_101', #window_short 12-24-6 window_long 24-180-12 
-        # 'alpha_full_factor_105' ##window 5-200-5
-
-        # 'alpha_full_factor_001'
-
-
-        # 'alpha_full_factor_062_zscore_clipping'
-        # 'alpha_full_factor_095_regime_adaptive'
-        'alpha_full_factor_046_vol_weighted' 
-        
-
+        'alpha_momentumminer_factor_2_id41'
     ]
     for alpha_name in alpha_list:
         alpha_params = {
             
-            # "window_reg": {"start": 5, "end": 100, "step": 10 },
-            # "window_signal": {"start": 5, "end": 20, "step": 5},
-            # "window_delta": {"start": 1, "end": 4, "step": 1},
-            "window": {"start": 5, "end": 200, "step": 5 },
+            "ema_window": {"start": 6, "end": 18, "step": 6 },
+            "delay_step": {"start": 2, "end": 5, "step": 1},
+            "std_window": {"start": 20, "end": 50, "step": 10 },
+            # "std_window": {"start": 5, "end": 200, "step": 5 },
+            # "window_rank":{"start":10, "end":100 , "step":10},
             # "factor": {"start": 10, "end": 40, "step": 10},
             # "window_long": {"start": 24, "end": 180, "step": 12},
 
