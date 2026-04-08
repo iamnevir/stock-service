@@ -34,6 +34,12 @@ ALPHA_PARAM_SCHEMAS = {
         ("trend_delta", int),
         ("window_rank", float),
     ],
+    "alpha_factor_miner_037":[
+        ("ema_window", int),
+        ("delay_step", int),
+        ("std_fast", int),
+        ("std_slow", int),
+    ],
      "alpha_factor_miner_041":[
         ("ema_window", int),
         ("delay_step", int),
