@@ -182,8 +182,11 @@ class ScanParams:
     def gen_params_combinations(self):
         priority = {
             "window": 0,
-            "window_corr_vwap": 1,
-            "window_corr_volume": 2,
+            "factor":1,
+            "window_corr_vwap": 2,
+            "window_corr_volume": 3,
+            "ret_window": 4,
+            "ema_window":5,
         }
 
         # Lấy các keys và sắp xếp theo priority trước, sau đó theo tên cho ổn định

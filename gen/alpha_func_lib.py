@@ -6225,7 +6225,8 @@ class Alphas:
         return signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_067(df: pd.DataFrame,window=5, window_rank=50):
+    def alpha_popbo_067(df: pd.DataFrame,window=5, factor=50):
+        factor = int(factor)
         # window 10,13,16,19
         # window_rank 10,100,10
         """ SMA(MAX(CLOSE-DELAY(CLOSE,1),0),24,1)/SMA(ABS(CLOSE-DELAY(CLOSE,1)),24,1)*100 """
@@ -6243,7 +6244,7 @@ class Alphas:
         rsi_like = (sma_up / (sma_abs + 1e-8)) * 100
         
         # 4. Normalize
-        ranked_signal = rsi_like.rolling(window_rank).rank(pct=True)
+        ranked_signal = rsi_like.rolling(factor).rank(pct=True)
         signal = (2 * ranked_signal) - 1
         return signal.fillna(0)
 
@@ -6466,7 +6467,8 @@ class Alphas:
         return -signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_078(df: pd.DataFrame,window =2, window_rank=20):
+    def alpha_popbo_078(df: pd.DataFrame,window =2, factor=20):
+        factor = int(factor)
         # window 2,3,4,5
         # window_rank 10,100,10
         vwap_approx = (df['high'] + df['low'] + df['close']) / 3
@@ -6481,12 +6483,13 @@ class Alphas:
         
         # 3. Ratio and Normalize
         ratio = numerator / (denominator + 1e-8)
-        ranked_signal = ratio.rolling(window_rank).rank(pct=True)
+        ranked_signal = ratio.rolling(factor).rank(pct=True)
         signal = (2 * ranked_signal) - 1
         return signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_079(df: pd.DataFrame,window=7, window_rank=20):
+    def alpha_popbo_079(df: pd.DataFrame,window=7, factor=20):
+        factor = int(factor)
         # window 4,5,6,7
         # window_rank 10,100,10
         """ SMA(MAX(CLOSE-DELAY(CLOSE,1),0),12,1)/SMA(ABS(CLOSE-DELAY(CLOSE,1)),12,1)*100 """
@@ -6504,7 +6507,7 @@ class Alphas:
         rsi_12 = (sma_up / (sma_abs + 1e-8)) * 100
         
         # 4. Normalize
-        ranked_signal = rsi_12.rolling(window_rank).rank(pct=True)
+        ranked_signal = rsi_12.rolling(factor).rank(pct=True)
         signal = (2 * ranked_signal) - 1
         return signal.fillna(0)
 
@@ -6849,16 +6852,17 @@ class Alphas:
         return -signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_098(df: pd.DataFrame, window=4, window_rank=20):
-        mean_100 = df['close'].rolling(window_rank).mean()
-        delta_100 = mean_100.diff(window_rank)
-        delay_100 = df['close'].shift(window_rank)
+    def alpha_popbo_098(df: pd.DataFrame, window=4, factor=20):
+        factor = int(factor)
+        mean_100 = df['close'].rolling(factor).mean()
+        delta_100 = mean_100.diff(factor)
+        delay_100 = df['close'].shift(factor)
         
         # 1. Conditional metric calculation
         metric = delta_100 / (delay_100 + 1e-8)
         cond = metric <= 0.05
         
-        tsmin_100 = df['close'].rolling(window_rank).min()
+        tsmin_100 = df['close'].rolling(factor).min()
         delta_3 = df['close'].diff(window)
         
         # 2. Assignments
@@ -7005,13 +7009,14 @@ class Alphas:
         return -signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_106(df: pd.DataFrame, window=1, window_rank = 20):
+    def alpha_popbo_106(df: pd.DataFrame, window=1, factor = 20):
+        factor = int(factor)
         """ CLOSE-DELAY(CLOSE,20) """
         # 1. 20-day Momentum
         delta_20 = df['close'].diff(window)
         
         # 2. Normalize
-        ranked_signal = delta_20.rolling(window_rank).rank(pct=True)
+        ranked_signal = delta_20.rolling(factor).rank(pct=True)
         signal = (2 * ranked_signal) - 1
         return signal.fillna(0)
 
@@ -7089,7 +7094,8 @@ class Alphas:
         return signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_111(df: pd.DataFrame,window=2, window_rank=20):
+    def alpha_popbo_111(df: pd.DataFrame,window=2, factor=20):
+        factor = int(factor)
         """ SMA(VOL*((CLOSE-LOW)-(HIGH-CLOSE))/(HIGH-LOW),11,2)-SMA(VOL*((CLOSE-LOW)-(HIGH-CLOSE))/(HIGH-LOW),4,2) """
         volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
         
@@ -7106,7 +7112,7 @@ class Alphas:
         
         # 4. Difference and Normalize
         raw_signal = sma_11 - sma_4
-        ranked_signal = raw_signal.rolling(window_rank).rank(pct=True)
+        ranked_signal = raw_signal.rolling(factor).rank(pct=True)
         signal = (2 * ranked_signal) - 1
         return -signal.fillna(0)
 
@@ -7159,22 +7165,23 @@ class Alphas:
         return signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_114(df: pd.DataFrame,window=2, window_rank=20):
+    def alpha_popbo_114(df: pd.DataFrame,window=2, factor=20):
+        factor = int(factor)
         """ ((RANK(DELAY(((HIGH - LOW) / (SUM(CLOSE, 5) / 5)), 2)) * RANK(RANK(VOLUME))) / (((HIGH - LOW) /(SUM(CLOSE, 5) / 5)) / (VWAP - CLOSE))) """
         volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
         vwap = df.get('vwap', (df['high']+df['low']+df['close'])/3)
         
         # 1. Inner Metric Calculation
-        mean_close_5 = df['close'].rolling(window_rank).mean()
+        mean_close_5 = df['close'].rolling(factor).mean()
         metric = (df['high'] - df['low']) / (mean_close_5 + 1e-8)
         
         # 2. Numerator Left Rank
         delay_2 = metric.shift(window)
-        rank_1 = delay_2.rolling(window_rank).rank(pct=True)
+        rank_1 = delay_2.rolling(factor).rank(pct=True)
         
         # 3. Numerator Right Rank
-        rank_vol = volume.rolling(window_rank).rank(pct=True)
-        rank_2 = rank_vol.rolling(window_rank).rank(pct=True)
+        rank_vol = volume.rolling(factor).rank(pct=True)
+        rank_2 = rank_vol.rolling(factor).rank(pct=True)
         
         numerator = rank_1 * rank_2
         
@@ -7183,7 +7190,7 @@ class Alphas:
         
         # 5. Combine and Normalize
         raw_signal = numerator / (denominator + 1e-8)
-        ranked_signal = raw_signal.rolling(window_rank).rank(pct=True)
+        ranked_signal = raw_signal.rolling(factor).rank(pct=True)
         signal = (2 * ranked_signal) - 1
         return -signal.fillna(0)
 
@@ -7543,7 +7550,8 @@ class Alphas:
         return signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_134(df: pd.DataFrame, window=1, window_rank=20):
+    def alpha_popbo_134(df: pd.DataFrame, window=1, factor=20):
+        factor = int(factor)
         """ (CLOSE-DELAY(CLOSE,12))/DELAY(CLOSE,12)*VOLUME """
         volume = df.get('matchingVolume', df.get('volume', df['close']*0+1))
         
@@ -7551,7 +7559,7 @@ class Alphas:
         ratio = (df['close'] - delay_12) / (delay_12 + 1e-8)
         
         raw_signal = ratio * volume
-        ranked_signal = raw_signal.rolling(window_rank).rank(pct=True)
+        ranked_signal = raw_signal.rolling(factor).rank(pct=True)
         signal = (2 * ranked_signal) - 1
         return signal.fillna(0)
 
@@ -7586,7 +7594,8 @@ class Alphas:
         return signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_137(df: pd.DataFrame,window=1, window_rank=10):
+    def alpha_popbo_137(df: pd.DataFrame,window=1, factor=10):
+        factor = int(factor)
         """ Complex nested ternary expression formula """
         delay_close = df['close'].shift(window)
         delay_open = df['open'].shift(window)
@@ -7617,7 +7626,7 @@ class Alphas:
         raw_signal = (part0 / part1) * max_AB
         
         # Normalize
-        ranked_signal = raw_signal.rolling(window_rank).rank(pct=True)
+        ranked_signal = raw_signal.rolling(factor).rank(pct=True)
         signal = (2 * ranked_signal) - 1
         return signal.fillna(0)
 
@@ -8300,14 +8309,15 @@ class Alphas:
         return signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_170(df: pd.DataFrame, window=1, window_rank=20):
+    def alpha_popbo_170(df: pd.DataFrame, window=1, factor=20):
+        factor = int(factor)
        
-        rank_inv_close = O.ts_rank_normalized(1 / (df['close'] + 1e-8), window_rank)
+        rank_inv_close = O.ts_rank_normalized(1 / (df['close'] + 1e-8), factor)
         
         vol = df.get('volume', df.get('matchingVolume'))
         vol_ratio = vol / (O.ts_mean(vol, 20) + 1e-8)
         
-        high_rank_pressure = O.ts_rank_normalized(df['high'] - df['close'], window_rank)
+        high_rank_pressure = O.ts_rank_normalized(df['high'] - df['close'], factor)
         avg_high_5 = O.ts_mean(df['high'], window)
         relative_high = (df['high'] * high_rank_pressure) / (avg_high_5 + 1e-8)
         
@@ -8315,11 +8325,11 @@ class Alphas:
      
         vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
         vwap_delta = vwap - O.ts_lag(vwap, window)
-        right_term = O.ts_rank_normalized(vwap_delta, window_rank)
+        right_term = O.ts_rank_normalized(vwap_delta, factor)
         
         raw_signal = left_term - right_term
         
-        ranked_signal = O.ts_rank_normalized(raw_signal, window_rank)
+        ranked_signal = O.ts_rank_normalized(raw_signal, factor)
         signal = (2 * ranked_signal) - 1
         
         return -signal.fillna(0)
@@ -8457,13 +8467,14 @@ class Alphas:
         return signal.fillna(0)
 
     @staticmethod
-    def alpha_popbo_178(df: pd.DataFrame,window=1, window_rank=20):
+    def alpha_popbo_178(df: pd.DataFrame,window=1, factor=20):
+        factor = int(factor)
         returns = (df['close'] - O.ts_lag(df['close'], window)) / (O.ts_lag(df['close'], 1) + 1e-8)
         
         volume = df.get('volume', df.get('matchingVolume'))
         raw_flow = returns * volume
         
-        ranked_signal = O.ts_rank_normalized(raw_flow, window_rank)
+        ranked_signal = O.ts_rank_normalized(raw_flow, factor)
         
         signal = (2 * ranked_signal) - 1
         
@@ -8736,6 +8747,2070 @@ class Alphas:
         
         return signal.fillna(0)
 
+    # FACTOR MINOR
+    @staticmethod
+    def alpha_factor_miner_000(df: pd.DataFrame, window=20):
+        """
+        Logic: Volume-Adjusted Efficiency Ratio.
+        Mục đích: Tìm kiếm các cây nến có thân dài nhưng 'sạch' (ít nhiễu) và có thanh khoản xác nhận.
+        """
+        # 1. Tính thân nến (Body)
+        body = df['close'] - df['open']
+        
+        # 2. Tính độ lệch chuẩn của thân nến trong 20 phiên
+        volatility = O.ts_std(body, 20)
+        
+        # 3. Lấy căn bậc hai của khối lượng
+        volume = df.get('volume', df.get('matchingVolume'))
+        sqrt_vol = np.sqrt(volume + 1e-8)
+        
+        # 4. Tính toán tỷ lệ hiệu quả (Efficiency Ratio)
+        # Ratio = (Close - Open) / (Std * Sqrt(Vol))
+        raw_ratio = body / (volatility * sqrt_vol + 1e-8)
+        
+        # 5. Chuẩn hóa về dải -1 đến 1
+        ranked_signal = O.ts_rank_normalized(raw_ratio, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+    
+
+    @staticmethod
+    def alpha_factor_miner_001(df: pd.DataFrame, window=20):
+        """
+        Logic: Liquidity-Normalized VWAP/EMA Spread.
+        Mục đích: Tìm điểm bùng nổ xu hướng dựa trên độ lệch giá và khối lượng trung bình.
+        """
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        volume = df.get('volume', df.get('matchingVolume'))
+        
+        # 1. Tính EMA 15 phiên cho Close và Volume
+        ema_close_15 = df['close'].ewm(span=15, adjust=False).mean()
+        ema_vol_15 = volume.ewm(span=15, adjust=False).mean()
+        
+        # 2. Tính độ lệch (Spread)
+        spread = vwap - ema_close_15
+        
+        # 3. Chuẩn hóa Spread theo quy mô Volume trung bình
+        # (Spread / EMA_Vol)
+        raw_ratio = spread / (ema_vol_15 + 1e-8)
+        
+        # 4. Chuẩn hóa về dải -1 đến 1
+        ranked_signal = O.ts_rank_normalized(raw_ratio, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+
+    @staticmethod
+    def alpha_factor_miner_002(df: pd.DataFrame, window=30):
+        
+        returns = (df['close'] / O.ts_lag(df['close'], 1)) - 1
+        
+        amt = df.get('amount', df['close'] * df.get('volume', df.get('matchingVolume')))
+        log_amt = np.log(amt + 1e-8)
+        
+        correlation = O.ts_corr(log_amt, returns, window)
+        
+        raw_signal = -1 * correlation
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_003(df: pd.DataFrame, window=40, delay_step=5):
+        def get_kama(price, n=40):
+            change = abs(price - price.shift(n))
+            volatility = abs(price - price.shift(1)).rolling(n).sum()
+            er = change / (volatility + 1e-8)
+            
+            sc = (er * (2/(2+1) - 2/(30+1)) + 2/(30+1))**2
+            
+            kama = np.zeros_like(price)
+            kama[n-1] = price[n-1] 
+            for i in range(n, len(price)):
+                kama[i] = kama[i-1] + sc[i] * (price[i] - kama[i-1])
+            return pd.Series(kama, index=price.index)
+
+        kama_val = get_kama(df['close'], window)
+        
+        kama_diff = kama_val - kama_val.shift(delay_step)
+
+        raw_signal = -1 * kama_diff
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_004(df: pd.DataFrame, window=50, delay_step=10, z_window=60):
+       
+        volume = df.get('volume', df.get('matchingVolume'))
+        
+        vol_skew = volume.rolling(window).skew()
+        
+        skew_delta = vol_skew - vol_skew.shift(delay_step)
+        
+        mean_delta = skew_delta.rolling(z_window).mean()
+        std_delta = skew_delta.rolling(z_window).std()
+        z_score = (skew_delta - mean_delta) / (std_delta + 1e-8)
+       
+        raw_signal = -1 * z_score
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, z_window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_005(df: pd.DataFrame, window=20):
+        body = df['close'] - df['open']
+        
+        full_range = df['high'] - df['low']
+      
+        raw_efficiency = body / (full_range + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(raw_efficiency, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_006(df: pd.DataFrame, window=20):
+        
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        volume = df.get('volume', df.get('matchingVolume'))
+        
+        vwap_std = vwap.rolling(window).std()
+        
+        avg_vol = volume.rolling(window).mean()
+        
+        raw_ratio = vwap_std / (avg_vol + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(raw_ratio, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_007(df: pd.DataFrame, reg_window=15, corr_window=10):
+    
+        amt = df.get('amount', df['close'] * df.get('volume', df.get('matchingVolume')))
+        
+     
+        def get_slope(series, n):
+            y = series.values
+            x = np.arange(n)
+            def calc_slope(y_window):
+                if len(y_window) < n: return np.nan
+                slope, _ = np.polyfit(x, y_window, 1)
+                return slope
+            return series.rolling(window=n).apply(calc_slope, raw=True)
+
+        slope_amt = get_slope(amt, reg_window)
+        slope_close = get_slope(df['close'], reg_window)
+        
+        correlation = slope_amt.rolling(corr_window).corr(slope_close)
+        
+       
+        raw_signal = -1 * correlation
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_008(df: pd.DataFrame, kama_window=30, std_window=10, delay_step=5):
+        
+        close_values = df['close'].values
+        returns = np.diff(close_values, prepend=close_values[0]) / (close_values + 1e-8)
+        
+        def get_kama_fast(arr, n=30):
+            abs_diff = np.abs(arr - np.roll(arr, n))
+            vol = pd.Series(np.abs(arr - np.roll(arr, 1))).rolling(n).sum().values
+            
+            er = np.where(vol > 1e-8, abs_diff / vol, 0)
+            
+            sc = (er * (2/3 - 2/31) + 2/31)**2
+            
+            kama = np.zeros_like(arr)
+            kama[n-1] = arr[n-1]
+            
+            for i in range(n, len(arr)):
+                kama[i] = kama[i-1] + sc[i] * (arr[i] - kama[i-1])
+            return kama
+
+        kama_ret = get_kama_fast(returns, kama_window)
+        kama_ret_series = pd.Series(kama_ret, index=df.index)
+        
+        kama_volatility = kama_ret_series.rolling(std_window).std(ddof=0)
+        
+        vol_change = kama_volatility.diff(delay_step)
+        
+        raw_signal = -1 * vol_change.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_009(df: pd.DataFrame, window=60):
+      
+        volume = df.get('volume', df.get('matchingVolume')).values
+        cumsum_vol = np.cumsum(volume)
+        
+        cumsum_ser = pd.Series(cumsum_vol, index=df.index)
+        
+        ts_max_vol = cumsum_ser.rolling(window).max()
+       
+        ratio = cumsum_ser / (ts_max_vol + 1e-8)
+        
+   
+        raw_signal = -1 * ratio
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+
+    @staticmethod
+    def alpha_factor_miner_010(df: pd.DataFrame, window=5, factor=10):
+        factor = int(factor)
+       
+        close_vals = df['close'].values
+        returns = np.diff(close_vals, prepend=close_vals[0]) / (close_vals + 1e-8)
+        returns_ser = pd.Series(returns, index=df.index)
+        
+        delta_ret = returns_ser.diff(window)
+        
+        std_ret = returns_ser.rolling(factor).std(ddof=0)
+       
+        raw_ratio = delta_ret / (std_ret + 1e-8)
+        
+      
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_011(df: pd.DataFrame, window=5, factor=20):
+        factor = int(factor)
+        close_vals = df['close'].values
+        returns = np.diff(close_vals, prepend=close_vals[0]) / (close_vals + 1e-8)
+        returns_ser = pd.Series(returns, index=df.index)
+        
+        std_10 = returns_ser.rolling(window).std(ddof=0)
+        std_25 = returns_ser.rolling(factor).std(ddof=0)
+        
+        vol_ratio = std_10 / (std_25 + 1e-8)
+        
+        signed_ratio = np.where(returns > 0, vol_ratio, -vol_ratio)
+        signed_ratio_ser = pd.Series(signed_ratio, index=df.index)
+        
+        
+        raw_signal = -1 * signed_ratio_ser.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_012(df: pd.DataFrame, short_window=5, long_window=20):
+       
+        range_hl = df['high'] - df['low']
+        
+        close_vals = df['close'].values
+        returns = np.diff(close_vals, prepend=close_vals[0]) / (close_vals + 1e-8)
+        returns_ser = pd.Series(returns, index=df.index)
+        
+        
+        std_range_5 = range_hl.rolling(short_window).std(ddof=0)
+ 
+        std_ret_20 = returns_ser.rolling(long_window).std(ddof=0)
+     
+        raw_ratio = std_range_5 / (std_ret_20 + 1e-8)
+        
+        
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_013(df: pd.DataFrame, window=12, factor=3):
+        factor = int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        price_vwap_ratio = df['close'] / (vwap + 1e-8)
+        
+        
+        smoothed_ratio = price_vwap_ratio.ewm(span=window, adjust=False).mean()
+        
+        
+        delta_ratio = smoothed_ratio - smoothed_ratio.shift(factor)
+        
+        ranked_signal = O.ts_rank_normalized(delta_ratio.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_014(df: pd.DataFrame, rank_window=15, reg_window=8):
+        price_rank = df['close'].rolling(rank_window).rank(pct=True)
+        
+        x = np.arange(reg_window)
+        x_var = np.var(x)
+        
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        
+        numerator = price_rank.rolling(reg_window).cov(ser_index)
+        slope_rank = numerator / x_var
+        
+        std_rank = price_rank.rolling(reg_window).std(ddof=0)
+        
+        raw_ratio = slope_rank / (std_rank + 1e-8)
+        
+        raw_signal = -1 * raw_ratio.fillna(0)
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_015(df: pd.DataFrame, kurt_window=30, delta_window=3, slope_window=20):
+        close_vals = df['close'].values
+        returns = np.diff(close_vals, prepend=close_vals[0]) / (close_vals + 1e-8)
+        kurtosis = pd.Series(returns).rolling(kurt_window).kurt().values
+        
+        delta_close = df['close'].diff(delta_window)
+        
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(slope_window))
+        slope_close = df['close'].rolling(slope_window).cov(ser_index) / (x_var + 1e-8)
+        
+        rank_delta = O.ts_rank_normalized(delta_close, 20)
+        rank_slope = O.ts_rank_normalized(slope_close, 20)
+        
+        condition_signal = np.where(kurtosis > 0, -rank_delta, rank_slope)
+        
+        raw_signal = -1 * pd.Series(condition_signal, index=df.index)
+        
+        signal = (2 * raw_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_016(df: pd.DataFrame, short_window=5, long_window=10):
+        range_hl = df['high'] - df['low']
+        
+        close_vals = df['close'].values
+        returns = np.diff(close_vals, prepend=close_vals[0]) / (close_vals + 1e-8)
+        returns_ser = pd.Series(returns, index=df.index)
+        
+        # 2. Tính Std Range (5 phiên) và Std Returns (10 phiên)
+        std_range_5 = range_hl.rolling(short_window).std(ddof=0)
+        std_ret_10 = returns_ser.rolling(long_window).std(ddof=0)
+        
+        # 3. Tính Volatility Ratio
+        vol_ratio = std_range_5 / (std_ret_10 + 1e-8)
+        
+        
+        condition_signal = np.where(returns < 0, vol_ratio, -vol_ratio)
+        
+        
+        raw_signal = pd.Series(condition_signal, index=df.index).fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_017(df: pd.DataFrame, delta_short=1, delta_mid=3, rank_window=15):
+        
+        delta_1 = df['close'].diff(delta_short)
+        delta_3 = df['close'].diff(delta_mid)
+        
+        rank_delta_1 = delta_1.rolling(rank_window).rank(pct=True)
+        rank_delta_3 = delta_3.rolling(rank_window).rank(pct=True)
+        
+      
+        rank_diff = rank_delta_3 - rank_delta_1
+        
+        raw_signal = -1 * rank_diff.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_018(df: pd.DataFrame, ema_window=10, delay_step=2, std_window=20):
+        close_vals = df['close'].values
+        returns = np.diff(close_vals, prepend=close_vals[0]) / (close_vals + 1e-8)
+        returns_ser = pd.Series(returns, index=df.index)
+        
+        ema_ret = returns_ser.ewm(span=ema_window, adjust=False).mean()
+        
+        delta_ema = ema_ret - ema_ret.shift(delay_step)
+        
+        std_ema = ema_ret.rolling(std_window).std(ddof=0)
+        
+        raw_ratio = delta_ema / (std_ema + 1e-8)
+        
+        
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_019(df: pd.DataFrame, ema_window=8, slope_window=5, corr_window=10):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        price_vwap_ratio = (df['close'] / (vwap + 1e-8)).ewm(span=ema_window, adjust=False).mean()
+        
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(slope_window))
+        price_slope = df['close'].rolling(slope_window).cov(ser_index) / (x_var + 1e-8)
+       
+        correlation = price_vwap_ratio.rolling(corr_window).corr(price_slope)
+        
+        raw_signal = correlation.fillna(0)
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_020(df: pd.DataFrame, ema_window=5, ret_window=2, corr_window=8):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        price_vwap_ratio = (df['close'] / (vwap + 1e-8)).ewm(span=ema_window, adjust=False).mean()
+       
+        returns_2 = df['close'].pct_change(ret_window)
+        
+        correlation = price_vwap_ratio.rolling(corr_window).corr(returns_2)
+        
+        raw_signal = -1 * correlation.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_021(df: pd.DataFrame, reg_window=15, delay_step=3, std_window=20):
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        price_slope = df['close'].rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+        
+      
+        delta_slope = price_slope - price_slope.shift(delay_step)
+        
+        std_slope = price_slope.rolling(std_window).std(ddof=0)
+        
+        raw_ratio = delta_slope / (std_slope + 1e-8)
+        
+        
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_022(df: pd.DataFrame, std_window=8, mean_window=32, moment_window=15):
+       
+        close_vals = df['close'].values
+        returns = np.diff(close_vals, prepend=close_vals[0]) / (close_vals + 1e-8)
+        returns_ser = pd.Series(returns, index=df.index)
+        
+        vola_8 = returns_ser.rolling(std_window).std(ddof=0)
+        vola_mean_32 = vola_8.rolling(mean_window).mean()
+        
+        skew_15 = returns_ser.rolling(moment_window).skew()
+        kurt_15 = returns_ser.rolling(moment_window).kurt()
+        
+        rank_skew = O.ts_rank_normalized(skew_15, 20)
+        rank_kurt = O.ts_rank_normalized(kurt_15, 20)
+        
+      
+        condition = vola_8 > vola_mean_32
+        signal_raw = np.where(condition, -rank_skew, rank_kurt)
+        
+        raw_series = pd.Series(signal_raw, index=df.index).fillna(0)
+        ranked_signal = O.ts_rank_normalized(raw_series, 20)
+        
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_023(df: pd.DataFrame, ret_short=1, ret_mid=3, rank_window=12):
+        ret_1 = df['close'].pct_change(ret_short)
+        ret_3 = df['close'].pct_change(ret_mid)
+      
+        rank_ret_1 = ret_1.rolling(rank_window).rank(pct=True)
+        rank_ret_3 = ret_3.rolling(rank_window).rank(pct=True)
+        
+        
+        rank_diff = rank_ret_3 - rank_ret_1
+        
+        raw_signal = rank_diff.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_024(df: pd.DataFrame, ema_window=6, amt_reg_window=8, corr_window=10):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        price_vwap_ratio = (df['close'] / (vwap + 1e-8)).ewm(span=ema_window, adjust=False).mean()
+        
+        amt = df.get('amount', df['close'] * df['matchingVolume'])
+        
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(amt_reg_window))
+        amt_slope = amt.rolling(amt_reg_window).cov(ser_index) / (x_var + 1e-8)
+        
+        correlation = price_vwap_ratio.rolling(corr_window).corr(amt_slope)
+        
+       
+        raw_signal = correlation.fillna(0)
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+
+    @staticmethod
+    def alpha_factor_miner_025(df: pd.DataFrame, range_std_short=5, range_std_long=20):
+        
+        range_hl = df['high'] - df['low']
+        std_range_5 = range_hl.rolling(range_std_short).std(ddof=0)
+        mean_std_range_20 = std_range_5.rolling(range_std_long).mean()
+        
+        rev_delta = -1 * df['close'].diff(2)
+        
+        trend_ret = df['close'].pct_change(1).rolling(10).rank(pct=True)
+        
+        
+        condition = std_range_5 < mean_std_range_20
+        
+        rank_rev = O.ts_rank_normalized(rev_delta.fillna(0), 20)
+        rank_trend = O.ts_rank_normalized(trend_ret.fillna(0), 20)
+        
+        raw_signal = np.where(condition, rank_rev, rank_trend)
+        
+        ranked_signal = O.ts_rank_normalized(pd.Series(raw_signal, index=df.index), 20)
+        
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+
+    @staticmethod
+    def alpha_factor_miner_026(df: pd.DataFrame, reg_window=5, delay_step=1, std_window=20):
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        price_slope = df['close'].rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+        
+        delta_slope = price_slope - price_slope.shift(delay_step)
+        
+        std_slope = price_slope.rolling(std_window).std(ddof=0)
+        
+        raw_ratio = delta_slope / (std_slope + 1e-8)
+        
+       
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_factor_miner_027(df: pd.DataFrame, ema_short=5, ema_long=10, rank_window=12):
+        close_vals = df['close'].values
+        returns = np.diff(close_vals, prepend=close_vals[0]) / (close_vals + 1e-8)
+        returns_ser = pd.Series(returns, index=df.index)
+        
+        ema_5 = returns_ser.ewm(span=ema_short, adjust=False).mean()
+        ema_10 = returns_ser.ewm(span=ema_long, adjust=False).mean()
+        
+        
+        rank_ema_5 = ema_5.rolling(rank_window).rank(pct=True)
+        rank_ema_10 = ema_10.rolling(rank_window).rank(pct=True)
+        
+       
+        raw_signal = rank_ema_5 - rank_ema_10
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal.fillna(0), 20)
+        
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_028(df: pd.DataFrame, vwap_delta=1, reg_window=10):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        ratio = df['close'] / (vwap + 1e-8)
+        
+        vwap_delta_val = vwap.diff(vwap_delta)
+        
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        ratio_slope = ratio.rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+      
+        rank_slope = O.ts_rank_normalized(ratio_slope.fillna(0), reg_window)
+        
+        condition_signal = np.where(vwap_delta_val < 0, -rank_slope, rank_slope)
+        
+        
+        raw_signal = -1 * pd.Series(condition_signal, index=df.index)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, reg_window)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+
+    @staticmethod
+    def alpha_factor_miner_029(df: pd.DataFrame, range_std=10, ret_std=15, threshold=0.8):
+        range_hl = df['high'] - df['low']
+        std_range_3 = range_hl.rolling(range_std).std(ddof=0)
+        
+        # Dùng pct_change để giữ nguyên index và độ dài
+        returns_ser = df['close'].pct_change(1).fillna(0)
+        std_ret_10 = returns_ser.rolling(ret_std).std(ddof=0)
+        
+        # Tránh chia cho 0
+        vol_ratio = std_range_3 / (std_ret_10 + 1e-8)
+        
+       
+        rev_delta = -df['close'].diff(1).fillna(0)
+        
+        # Thuận xu hướng VWAP Ratio (8 phiên)
+        vwap = (df['high'] + df['low'] + df['close']) / 3
+        trend_vwap_ratio = df['close'] / (vwap + 1e-8)
+        
+        
+        rank_rev = O.ts_rank_normalized(rev_delta, ret_std)
+        rank_trend = O.ts_rank_normalized(trend_vwap_ratio, range_std)
+        
+        condition = vol_ratio < threshold
+        
+        raw_signal = rank_trend.copy()
+        raw_signal[condition] = rank_rev[condition]
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, ret_std)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_030(df: pd.DataFrame, vwap_delta=3, reg_window=12):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        ratio = df['close'] / (vwap + 1e-8)
+        
+        vwap_trending_up = vwap.diff(vwap_delta) > 0
+        
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        ratio_slope = ratio.rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+   
+        conditional_slope = np.where(vwap_trending_up, ratio_slope, -ratio_slope)
+        
+       
+        raw_signal = -1 * pd.Series(conditional_slope, index=df.index).fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_031(df: pd.DataFrame, window=18, factor=3):
+        factor = int(factor)
+        def get_last_resid(y):
+            x = np.arange(len(y))
+            slope, intercept = np.polyfit(x, y, 1)
+            line = slope * (len(y) - 1) + intercept
+            return y[-1] - line
+
+        resid = df['close'].rolling(window=window).apply(get_last_resid, raw=True)
+        
+        
+        delta_resid = resid - resid.shift(factor)
+        
+        
+        raw_signal = -1 * delta_resid.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+
+    @staticmethod
+    def alpha_factor_miner_032(df: pd.DataFrame, corr_window=15, beta_window=12):
+        volume = df['matchingVolume']
+        returns = df['close'].pct_change(1).fillna(0)
+        
+        pv_corr = returns.rolling(corr_window).corr(volume)
+        
+        
+        amt = df.get('amount', df['close'] * volume)
+        
+        avg_price = amt / (volume + 1e-8)
+        avg_price_ret = avg_price.pct_change(1).fillna(0)
+        
+        covariance = returns.rolling(beta_window).cov(avg_price_ret)
+        variance = avg_price_ret.rolling(beta_window).var()
+        beta_val = covariance / (variance + 1e-8)
+        
+        condition = pv_corr >= 0
+        raw_signal = np.where(condition, -beta_val, beta_val)
+        
+        raw_series = pd.Series(raw_signal, index=df.index).fillna(0)
+        ranked_signal = O.ts_rank_normalized(raw_series, 20)
+        
+        signal = (2 * ranked_signal) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_033(df: pd.DataFrame, reg_window=12, delay_step=2, std_window=20):
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        price_slope = df['close'].rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+        
+        delta_slope = price_slope - price_slope.shift(delay_step)
+        
+        std_slope = price_slope.rolling(std_window).std(ddof=0)
+        
+        raw_ratio = delta_slope / (std_slope + 1e-8)
+        
+        
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_034(df: pd.DataFrame, window=16, factor=4):
+        factor = int(factor)
+        def get_last_resid(y):
+            x = np.arange(len(y))
+            slope, intercept = np.polyfit(x, y, 1)
+            # Tính giá trị dự báo tại điểm cuối cùng
+            line_val = slope * (len(y) - 1) + intercept
+            return y[-1] - line_val
+
+        # Sử dụng rolling apply để tính phần dư tại mỗi bước
+        resid = df['close'].rolling(window=window).apply(get_last_resid, raw=True)
+        
+        # 2. Tính sự thay đổi của Residual sau 4 phiên
+        delta_resid = resid - resid.shift(factor)
+        
+        
+        raw_signal = -1 * delta_resid.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_035(df: pd.DataFrame, reg_window=14, delay_step=4, std_window=18):
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        price_slope = df['close'].rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+        
+        delta_slope = price_slope - price_slope.shift(delay_step)
+        
+        std_slope = price_slope.rolling(std_window).std(ddof=0)
+        
+        raw_ratio = delta_slope / (std_slope + 1e-8)
+        
+       
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_036(df: pd.DataFrame, ema_window=10, reg_window=8, corr_window=12):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        ratio = (df['close'] / (vwap + 1e-8)).ewm(span=ema_window, adjust=False).mean()
+        
+        # 2. Tính Slope của giá (8 phiên)
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        price_slope = df['close'].rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+        
+        
+        correlation = ratio.rolling(corr_window).corr(price_slope)
+        
+        raw_signal = correlation.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_037(df: pd.DataFrame, ema_window=8, delay_step=3, std_fast=15, std_slow=30):
+        
+        returns = df['close'].pct_change(1).fillna(0)
+        ema_ret = returns.ewm(span=ema_window, adjust=False).mean()
+        
+        mom_ema_ret = ema_ret - ema_ret.shift(delay_step)
+        
+       
+        market_vol = returns.rolling(5).std(ddof=0)
+        
+        std_ema_fast = ema_ret.rolling(std_fast).std(ddof=0)
+        std_ema_slow = ema_ret.rolling(std_slow).std(ddof=0)
+        
+        dynamic_std = np.where(market_vol > 0.02, std_ema_fast, std_ema_slow)
+        
+        raw_ratio = mom_ema_ret / (dynamic_std + 1e-8)
+        
+        
+        raw_signal = -1 * pd.Series(raw_ratio, index=df.index).fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_038(df: pd.DataFrame, ema_window=8, reg_window=12, delay_step=3, std_window=18):
+        smoothed_price = df['close'].ewm(span=ema_window, adjust=False).mean()
+        
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        slope_smoothed = smoothed_price.rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+        
+        accel_slope = slope_smoothed - slope_smoothed.shift(delay_step)
+        
+        std_slope = slope_smoothed.rolling(std_window).std(ddof=0)
+        
+        raw_ratio = accel_slope / (std_slope + 1e-8)
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_039(df: pd.DataFrame, ema_window=6, delta_step=2, corr_window=10):
+        
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        ratio = (df['close'] / (vwap + 1e-8)).ewm(span=ema_window, adjust=False).mean()
+        
+        # 2. Tính Delta của Returns (2 phiên)
+        returns = df['close'].pct_change(1).fillna(0)
+        delta_ret = returns.diff(delta_step).fillna(0)
+        
+        
+        correlation = ratio.rolling(corr_window).corr(delta_ret)
+        
+        
+        raw_signal = -1 * correlation.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_040(df: pd.DataFrame, vol_window=5, reg_window=12, delay_step=3, std_window=18):
+      
+        returns = df['close'].pct_change(1).fillna(0)
+        vol = returns.rolling(vol_window).std(ddof=0)
+        
+        # 2. Tính Slope của Biến động (12 phiên)
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        vol_slope = vol.rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+        
+        # 3. Tính Gia tốc Biến động (Sự thay đổi Slope sau 3 phiên)
+        accel_vol = vol_slope - vol_slope.shift(delay_step)
+        
+        # 4. Chuẩn hóa rủi ro bằng Std của chính Vol Slope (18 phiên)
+        std_vol_slope = vol_slope.rolling(std_window).std(ddof=0)
+        
+        # 5. Tính tỷ lệ chuẩn hóa và áp dụng Neg
+        raw_ratio = accel_vol / (std_vol_slope + 1e-8)
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        # 6. Chuẩn hóa Rank
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_041(df: pd.DataFrame, ema_window=6, delay_step=2, std_window=20):
+        
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        ratio = (df['close'] / (vwap + 1e-8)).ewm(span=ema_window, adjust=False).mean()
+        
+        mom_ratio = ratio - ratio.shift(delay_step)
+        
+        std_ratio = ratio.rolling(std_window).std(ddof=0)
+        
+        
+        raw_signal = mom_ratio / (std_ratio + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal.fillna(0), std_window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_042(df: pd.DataFrame, rank_window=18):
+       
+        ret2 = df['close'].pct_change(2).fillna(0)
+        ret5 = df['close'].pct_change(5).fillna(0)
+        
+        # 2. Tính TsRank trong 18 phiên (Vị thế của lợi nhuận hiện tại so với quá khứ)
+        rank_ret2 = ret2.rolling(rank_window).rank(pct=True)
+        rank_ret5 = ret5.rolling(rank_window).rank(pct=True)
+        
+        
+        raw_signal = (rank_ret2 - rank_ret5).fillna(0)
+        
+        # 4. Chuẩn hóa về [-1, 1]
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_043(df: pd.DataFrame, ema_window=6, delay_step=3, std_window=14):
+       
+        ema_price = df['close'].ewm(span=ema_window, adjust=False).mean()
+        
+        velocity_ema = ema_price - ema_price.shift(delay_step)
+   
+        std_velocity = velocity_ema.rolling(std_window).std(ddof=0)
+        
+        # 4. Tỷ lệ chuẩn hóa và áp dụng Neg (Đánh đảo chiều)
+        raw_ratio = velocity_ema / (std_velocity + 1e-8)
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        # 5. CsRank chuẩn hóa về [-1, 1]
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_044(df: pd.DataFrame, rank_window=15):
+        
+        ret2 = df['close'].pct_change(2).fillna(0)
+        ret7 = df['close'].pct_change(7).fillna(0)
+        
+        rank_ret2 = ret2.rolling(rank_window).rank(pct=True)
+        rank_ret7 = ret7.rolling(rank_window).rank(pct=True)
+        
+        raw_signal = (rank_ret2 - rank_ret7).fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_045(df: pd.DataFrame, reg_window=12, delay_step=4, std_window=22):
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        price_slope = df['close'].rolling(reg_window).cov(ser_index) / (x_var + 1e-8)
+        
+        # 2. Tính sự thay đổi (Delta) của Slope sau 4 phiên
+        delta_slope = price_slope - price_slope.shift(delay_step)
+        
+        # 3. Chuẩn hóa rủi ro bằng Std của Slope trong 22 phiên
+        # Cửa sổ 22 giúp làm mượt tín hiệu cực tốt so với các bản 15, 18 phiên trước đó.
+        std_slope = price_slope.rolling(std_window).std(ddof=0)
+        
+        # 4. Tính tỷ lệ Risk-Adjusted và Neg (Đánh đảo chiều)
+        raw_ratio = delta_slope / (std_slope + 1e-8)
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        # 5. CsRank chuẩn hóa
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_046(df: pd.DataFrame, ret_window=1, ema_window=6, delay_step=3, std_window=14):
+       
+        returns = df['close'].pct_change(ret_window).fillna(0)
+        ema_ret = returns.ewm(span=ema_window, adjust=False).mean()
+        
+        # 2. Tính Vận tốc (Momentum) của EMA Returns sau 3 phiên
+        mom_ema_ret = ema_ret - ema_ret.shift(delay_step)
+        
+        # 3. Chuẩn hóa rủi ro bằng Std của chính EMA Returns (14 phiên)
+        std_ema_ret = ema_ret.rolling(std_window).std(ddof=0)
+        
+        # 4. Tín hiệu thuận xu hướng (do 2 lần Neg triệt tiêu)
+        raw_signal = mom_ema_ret / (std_ema_ret + 1e-8)
+        
+        # 5. CsRank chuẩn hóa
+        ranked_signal = O.ts_rank_normalized(raw_signal.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_047(df: pd.DataFrame, w_fast=10, w_slow=30):
+       
+        hl_spread = df['high'] - df['low']
+        vol_hl = hl_spread.rolling(w_fast).std(ddof=0)
+        
+        # 2. Điều kiện Regime: Check đáy biến động trong chu kỳ w_slow
+        is_low_vol = vol_hl <= vol_hl.rolling(w_slow).min()
+        
+        # 3. Nhánh Momentum (Dùng bước nhảy cố định là 2 để giữ độ nhạy)
+        sig_mom = -1 * (df['close'].diff(2).fillna(0))
+        sig_mom_ranked = sig_mom.rolling(w_slow).rank(pct=True) * 2 - 1
+        
+        # 4. Nhánh Regression (Dùng w_fast để tính độ dốc)
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(w_fast))
+        sig_reg = df['close'].rolling(w_fast).cov(ser_index) / (x_var + 1e-8)
+        sig_reg_ranked = sig_reg.rolling(w_slow).rank(pct=True) * 2 - 1
+        
+        # 5. Kết hợp và chuẩn hóa cuối cùng
+        raw_signal = np.where(is_low_vol, sig_mom_ranked, sig_reg_ranked)
+        final_ranked = pd.Series(raw_signal, index=df.index).rolling(w_slow).rank(pct=True)
+        
+        return -1 * (2 * final_ranked - 1).fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_048(df: pd.DataFrame, w_fast=12, w_slow=20):
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(w_fast))
+        price_slope = df['close'].rolling(w_fast).cov(ser_index) / (x_var + 1e-8)
+        
+        # 2. Tính gia tốc (Acceleration) 
+        # Độ trễ được fix theo tỷ lệ 1/3 của w_fast để giảm tham số
+        delay_step = max(1, w_fast // 3) 
+        accel_slope = price_slope - price_slope.shift(delay_step)
+        
+        # 3. Chuẩn hóa rủi ro bằng Std của Delta giá (dùng w_slow)
+        # Delta($close, 1) chính là biến động nến đơn lẻ
+        price_delta = df['close'].diff(1).fillna(0)
+        std_vol = price_delta.rolling(w_slow).std(ddof=0)
+        
+        # 4. Tính tín hiệu và Neg (Đánh đảo chiều)
+        raw_ratio = accel_slope / (std_vol + 1e-8)
+        raw_signal = -1 * raw_ratio.fillna(0)
+        
+        # 5. Chuẩn hóa Rank cuối cùng theo w_slow
+        ranked_signal = raw_signal.rolling(w_slow).rank(pct=True)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_049(df: pd.DataFrame, window=5):
+        if 'vwap' not in df.columns:
+            vwap = (df['high'] + df['low'] + df['close']) / 3
+        else:
+            vwap = df['vwap']
+            
+        ema_vwap = vwap.ewm(span=window, adjust=False).mean()
+      
+        relative_diff = (df['close'] - ema_vwap) / (ema_vwap.abs() + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(relative_diff.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_050(df: pd.DataFrame, window=30):
+        vol_std = O.ts_std(df['matchingVolume'], window)
+    
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * df['matchingVolume']
+        avg_amt = O.ts_mean(amt, window)
+        
+        ratio = vol_std / (avg_amt + 1e-8)
+        
+        z_signal = O.zscore(ratio, window)
+        
+        raw_signal = -1 * z_signal.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_051(df: pd.DataFrame, reg_window=25, delta_step=5):
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * df['matchingVolume']
+       
+        # Để tối ưu tính toán rolling, ta dùng công thức: Slope = Cov(y, x) / Var(x)
+        ser_index = pd.Series(np.arange(len(df)), index=df.index)
+        x_var = np.var(np.arange(reg_window))
+        
+        # Dùng O.ts_cov từ class của bạn
+        amt_slope = O.ts_cov(amt, ser_index, reg_window) / (x_var + 1e-8)
+        
+        accel_amt = O.ts_delta(amt_slope, delta_step)
+        
+      
+        z_accel = O.zscore(accel_amt.fillna(0), 20)
+        raw_signal = -1 * z_accel.fillna(0)
+        
+        # 5. Đưa về [-1, 1] qua O.ts_rank_normalized
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_052(df: pd.DataFrame, skew_window=40):
+        returns = df['close'].pct_change(1).fillna(0)
+        
+        skewness = returns.rolling(skew_window).skew().fillna(0)
+        
+        rank_ret = O.ts_rank_normalized(returns, 20)
+        
+       
+        condition = skewness > 0
+        raw_signal = np.where(condition, -1 * rank_ret, rank_ret)
+        
+        final_raw = -1 * pd.Series(raw_signal, index=df.index)
+        
+        ranked_signal = O.ts_rank_normalized(final_raw.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_053(df: pd.DataFrame, corr_window=12, lag_step=3):
+        df_vwap = O.compute_vwap(df.copy(), window=100)
+        vwap = df_vwap['vwap']
+        
+        delayed_close = O.ts_lag(df['close'], lag_step)
+        
+        correlation = O.ts_corr(delayed_close, vwap, corr_window)
+        
+        raw_signal = correlation.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_054(df: pd.DataFrame, window=5):
+        low_min = O.ts_min(df['low'], window)
+        high_max = O.ts_max(df['high'], window)
+        
+        price_range = high_max - low_min
+        
+        relative_position = (df['close'] - low_min) / (price_range + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(relative_position.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_055(df: pd.DataFrame, corr_window=20, delta_step=3):
+        vol = df['matchingVolume']
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * vol
+        pv_corr = O.ts_corr(vol, amt, corr_window)
+        
+        delta_corr = O.ts_delta(pv_corr, delta_step)
+        
+        z_signal = O.zscore(delta_corr.fillna(0), 20)
+        raw_signal = -1 * z_signal.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_056(df: pd.DataFrame, skew_window=40):
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * df['matchingVolume']
+        
+        amt_skew = amt.rolling(skew_window).skew().fillna(0)
+        
+        rank_amt = O.ts_rank_normalized(amt, 20)
+        
+        condition = amt_skew > 0
+        raw_signal = np.where(condition, rank_amt, -1 * rank_amt)
+        
+        final_raw = -1 * pd.Series(raw_signal, index=df.index)
+        
+        ranked_signal = O.ts_rank_normalized(final_raw.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_057(df: pd.DataFrame, window=10):
+        def calculate_hma(series, n):
+            wma_half = O.ts_weighted_mean(series, max(1, int(n/2)))
+            wma_full = O.ts_weighted_mean(series, n)
+            
+            raw_hma = 2 * wma_half - wma_full
+            
+            sqrt_n = max(1, int(np.sqrt(n)))
+            return O.ts_weighted_mean(raw_hma, sqrt_n)
+
+        hma_close = calculate_hma(df['close'], window)
+        
+
+        relative_diff = (df['close'] - hma_close) / (hma_close.abs() + 1e-8)
+        
+        z_signal = O.zscore(relative_diff.fillna(0), 20)
+        raw_signal = -1 * z_signal.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_058(df: pd.DataFrame, kurt_window=50):
+        vol = df['matchingVolume']
+        v_kurt = vol.rolling(kurt_window).kurt().fillna(0)
+        
+        vol_log = O.log(vol) # Nén mạnh các giá trị cực đại
+        vol_sqrt = O.power(vol, 0.5) # Nén vừa phải
+        
+        condition = v_kurt > 3
+        raw_vol_transformed = np.where(condition, vol_log, vol_sqrt)
+        
+        final_raw = -1 * pd.Series(raw_vol_transformed, index=df.index)
+        
+        ranked_signal = O.ts_rank_normalized(final_raw.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_059(df: pd.DataFrame, window=20):
+        body = df['close'] - df['open']
+        
+        full_range = (df['high'] - df['low']).abs() + 0.001
+        
+        efficiency_ratio = body / full_range
+        
+        raw_signal = -1 * efficiency_ratio.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, window)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_060(df: pd.DataFrame, skew_window=15):
+        df_vwap = O.compute_vwap(df.copy(), window=skew_window * 2)
+        vwap = df_vwap['vwap']
+        
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * df['matchingVolume']
+        
+        relative_ratio = (amt - vwap) / (vwap.abs() + 1e-8)
+        
+        skew_signal = relative_ratio.rolling(skew_window).skew().fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(skew_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0) 
+
+    @staticmethod
+    def alpha_factor_miner_061(df: pd.DataFrame, window=25):
+        hl_range = (df['high'] - df['low']).abs()
+        x = np.arange(window)
+        x_mean = np.mean(x)
+        x_var = np.var(x)
+        
+        def get_resid(y_slice):
+            if len(y_slice) < window: return 0
+            y_mean = np.mean(y_slice)
+            beta = np.cov(x, y_slice)[0, 1] / (x_var + 1e-8)
+            alpha = y_mean - beta * x_mean
+            current_y = y_slice[-1]
+            current_x = x[-1]
+            return current_y - (alpha + beta * current_x)
+
+        resid = hl_range.rolling(window).apply(get_resid, raw=True)
+        
+        raw_signal = -1 * resid.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_062(df: pd.DataFrame, std_window=10, beta_window=20):
+        df_vwap = O.compute_vwap(df.copy(), window=30)
+        vwap = df_vwap['vwap']
+        
+        returns = df['close'].pct_change(1).fillna(0)
+        volatility = O.ts_std(returns, std_window).fillna(0)
+ 
+        cov_y_x = O.ts_cov(vwap, volatility, beta_window)
+        var_x = O.ts_std(volatility, beta_window) ** 2
+        
+        beta_vwap_vol = cov_y_x / (var_x + 1e-8)
+        
+        z_signal = O.zscore(beta_vwap_vol.fillna(0), 20)
+        raw_signal = -1 * z_signal.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_063(df: pd.DataFrame, hma_window=12, corr_window=18):
+        def calculate_hma(series, n):
+            wma_half = O.ts_weighted_mean(series, max(1, int(n/2)))
+            wma_full = O.ts_weighted_mean(series, n)
+            raw_hma = 2 * wma_half - wma_full
+            sqrt_n = max(1, int(np.sqrt(n)))
+            return O.ts_weighted_mean(raw_hma, sqrt_n)
+
+        vol = df['matchingVolume']
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * vol
+        
+        hma_amt = calculate_hma(amt, hma_window)
+        hma_vol = calculate_hma(vol, hma_window)
+        
+        pv_corr = O.ts_corr(hma_amt, hma_vol, corr_window)
+        
+       
+        raw_signal = -1 * pv_corr.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_064(df: pd.DataFrame, q_window=50, quantile_level=0.75):
+        price_quantile = df['close'].rolling(q_window).quantile(quantile_level)
+        
+        deviation = df['close'] - price_quantile
+        
+        z_signal = O.zscore(deviation.fillna(0), 20)
+        
+        raw_signal = z_signal.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_065(df: pd.DataFrame, std_window=15, beta_window=25):
+        df_vwap = O.compute_vwap(df.copy(), window=40)
+        vwap = df_vwap['vwap']
+        
+        returns = df['close'].pct_change(1).fillna(0)
+        volatility = O.ts_std(returns, std_window).fillna(0)
+        
+        # 3. Tính Beta giữa VWAP (y) và Volatility (x) trong 25 phiên
+        cov_y_x = O.ts_cov(vwap, volatility, beta_window)
+        var_x = O.ts_std(volatility, beta_window) ** 2
+        
+        beta_signal = cov_y_x / (var_x + 1e-8)
+        
+        # 4. Áp dụng Neg và CsZScore (qua O.zscore)
+        z_signal = O.zscore(beta_signal.fillna(0), 20)
+        raw_signal = -1 * z_signal.fillna(0)
+        
+        # 5. Đưa về [-1, 1] qua O.ts_rank_normalized
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_066(df: pd.DataFrame, hma_window=14, corr_window=20):
+      
+        def calculate_hma(series, n):
+            wma_half = O.ts_weighted_mean(series, max(1, int(n/2)))
+            wma_full = O.ts_weighted_mean(series, n)
+            raw_hma = 2 * wma_half - wma_full
+            sqrt_n = max(1, int(np.sqrt(n)))
+            return O.ts_weighted_mean(raw_hma, sqrt_n)
+
+        # 1. Chuẩn bị dữ liệu
+        vol = df['matchingVolume']
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * vol
+        
+        # 2. Làm mượt bằng HMA (window 14)
+        hma_amt = calculate_hma(amt, hma_window)
+        hma_vol = calculate_hma(vol, hma_window)
+        
+        # 3. Tính tương quan rolling (window 20)
+        pv_corr = O.ts_corr(hma_amt, hma_vol, corr_window)
+        
+        # 4. Áp dụng Neg và CsRank (qua O.ts_rank_normalized)
+        raw_signal = -1 * pv_corr.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_067(df: pd.DataFrame, q_window=5, quantile_level=0.8):
+        upper_quantile = df['close'].rolling(q_window).quantile(quantile_level)
+        
+        deviation = df['close'] - upper_quantile
+        
+        z_signal = O.zscore(deviation.fillna(0), q_window)
+        
+        raw_signal = z_signal.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, q_window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_068(df: pd.DataFrame, ema_window=22, kurt_window=40):
+        vol = df['matchingVolume']
+        
+        vol_ema = vol.ewm(span=ema_window, adjust=False).mean()
+        
+        vol_ratio = vol / (vol_ema + 1e-8)
+        
+        kurt_signal = vol_ratio.rolling(kurt_window).kurt().fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(kurt_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_069(df: pd.DataFrame, return_lag=3, cov_window=12):
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * df['matchingVolume']
+       
+        log_return = np.log(df['close'] / df['close'].shift(return_lag)).fillna(0)
+        
+        cov_amt_return = O.ts_cov(amt, log_return, cov_window)
+        
+       
+        raw_signal = -1 * cov_amt_return.fillna(0)
+        
+        # 5. Chuẩn hóa về [-1, 1]
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_070(df: pd.DataFrame, window=15):
+        df_vwap = O.compute_vwap(df.copy(), window=window*2)
+        vwap = df_vwap['vwap']
+        
+        low_min = O.ts_min(df['low'], window)
+        high_max = O.ts_max(df['high'], window)
+        
+        range_width = high_max - low_min
+        relative_position = (vwap - low_min) / (range_width + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(relative_position.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_071(df: pd.DataFrame, window=15):
+        def get_slope(series, n):
+            x = np.arange(n)
+            x_mean = np.mean(x)
+            x_var = np.var(x)
+            
+            def calc_slope(y_slice):
+                if len(y_slice) < n: return 0
+                y_mean = np.mean(y_slice)
+                return np.cov(x, y_slice)[0, 1] / (x_var + 1e-8)
+            
+            return series.rolling(n).apply(calc_slope, raw=True)
+
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * df['matchingVolume']
+        
+        slope_close = get_slope(df['close'], window)
+        slope_amt = get_slope(amt, window)
+        
+        divergence = slope_close - slope_amt
+        
+        ranked_signal = O.ts_rank_normalized(divergence.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_072(df: pd.DataFrame, vol_window=8, skew_window=16):
+        returns = df['close'].pct_change(1).fillna(0)
+        vol = O.ts_std(returns, vol_window)
+        
+        vol_threshold = vol.rolling(50).quantile(0.75)
+        
+        skew_returns = returns.rolling(skew_window).skew().fillna(0)
+        
+        condition = vol > vol_threshold
+        raw_signal = np.where(condition, skew_returns, -1 * skew_returns)
+        
+        final_raw = -1 * pd.Series(raw_signal, index=df.index)
+        
+        ranked_signal = O.ts_rank_normalized(final_raw.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_073(df: pd.DataFrame, vol_window=10, slope_window=15):
+        returns = df['close'].pct_change(1).fillna(0)
+        vol_current = returns.rolling(vol_window).std().fillna(0)
+        vol_delayed = vol_current.shift(5).fillna(0)
+       
+        price_diff_2 = df['close'].diff(2).fillna(0)
+        reversal_signal = -1 * O.ts_rank_normalized(price_diff_2, 20)
+        
+        def get_slope(series, n):
+            x = np.arange(n)
+            x_var = np.var(x)
+            def calc(y):
+                if len(y) < n: return 0
+                return np.cov(x, y)[0, 1] / (x_var + 1e-8)
+            return series.rolling(n).apply(calc, raw=True)
+            
+        momentum_signal = O.ts_rank_normalized(get_slope(df['close'], slope_window).fillna(0), 20)
+        
+        condition = vol_current > vol_delayed
+        raw_signal = np.where(condition, reversal_signal, momentum_signal)
+        
+        final_series = pd.Series(raw_signal, index=df.index)
+        signal = (2 * O.ts_rank_normalized(final_series, 20)) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_074(df: pd.DataFrame, vol_window=12, skew_window=18, slope_window=10):
+        returns = df['close'].pct_change(1).fillna(0)
+        vol = returns.rolling(vol_window).std().fillna(0)
+        
+        vol_threshold = vol.rolling(30).quantile(0.8)
+        
+        skew_signal = -1 * returns.rolling(skew_window).skew().fillna(0)
+        
+        def get_slope(series, n):
+            x = np.arange(n)
+            x_var = np.var(x)
+            def calc(y):
+                if len(y) < n: return 0
+                return np.cov(x, y)[0, 1] / (x_var + 1e-8)
+            return series.rolling(n).apply(calc, raw=True)
+            
+        slope_signal = get_slope(df['close'], slope_window).fillna(0)
+        
+        # 5. Logic IfElse và chuẩn hóa Rank
+        condition = vol > vol_threshold
+        raw_signal = np.where(condition, skew_signal, slope_signal)
+        
+        # Đưa về [-1, 1]
+        final_series = pd.Series(raw_signal, index=df.index)
+        ranked_signal = O.ts_rank_normalized(final_series, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_075(df: pd.DataFrame, short_window=8, long_window=24):
+        hl_range = (df['high'] - df['low']).abs()
+        
+        std_short = hl_range.rolling(short_window).std().fillna(0)
+        std_long = hl_range.rolling(long_window).std().fillna(0)
+        
+        vol_ratio = std_short / (std_long + 1e-8)
+        
+        ranked_signal = O.ts_rank_normalized(vol_ratio.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_076(df: pd.DataFrame,window = 20, factor=1):
+        factor = int(factor)
+     
+        df_vwap = O.compute_vwap(df.copy(), window)
+        vwap = df_vwap['vwap']
+        
+        price_to_vwap_ratio = df['close'] / (vwap + 1e-8)
+       
+        ratio_delta = price_to_vwap_ratio.diff(factor).fillna(0)
+    
+        raw_signal = O.ts_rank_normalized(ratio_delta, window)
+        
+        signal = (2 * raw_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_077(df: pd.DataFrame, ema_window=30, zscore_window=10):
+       
+        hl_range = (df['high'] - df['low']).abs()
+        
+        hl_ema = hl_range.ewm(span=ema_window, adjust=False).mean()
+        
+      
+        compression_ratio = hl_range / (hl_ema + 1e-8)
+        
+        z_signal = O.zscore(compression_ratio.fillna(0), zscore_window)
+        raw_signal = -1 * z_signal.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+
+    @staticmethod
+    def alpha_factor_miner_078(df: pd.DataFrame, window=20):
+        
+        returns = df['close'].pct_change(1).fillna(0)
+        vol = df['matchingVolume']
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * vol
+       
+        cov_amt_ret = O.ts_cov(amt, returns, window)
+        var_ret = returns.rolling(window).var().fillna(0)
+        
+        beta_signal = cov_amt_ret / (var_ret + 1e-8)
+        
+        
+        raw_signal = -1 * beta_signal.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_079(df: pd.DataFrame, window=40):
+       
+        returns = df['close'].pct_change(1).fillna(0)
+       
+        skew_val = returns.rolling(window).skew().fillna(0)
+        
+        std_val = returns.rolling(window).std().fillna(0)
+        vol_weight = np.sqrt(std_val)
+        
+        raw_signal = skew_val * vol_weight
+        
+       
+        final_raw = -1 * raw_signal
+        
+        ranked_signal = O.ts_rank_normalized(final_raw, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_080(df: pd.DataFrame, window=20):
+        y = df['close']
+        x = df['matchingVolume']
+        def get_residual(y_slice, x_slice):
+            if len(y_slice) < 2: return 0
+            beta = np.cov(x_slice, y_slice)[0, 1] / (np.var(x_slice) + 1e-8)
+            alpha = np.mean(y_slice) - beta * np.mean(x_slice)
+            y_hat = alpha + beta * x_slice[-1]
+            return y_slice[-1] - y_hat
+
+       
+        residual = pd.Series([
+            get_residual(y.values[i-window:i], x.values[i-window:i]) 
+            if i >= window else 0 
+            for i in range(len(y))
+        ], index=df.index)
+        
+       
+        z_signal = O.zscore(residual.fillna(0), window)
+        raw_signal = -1 * z_signal
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_081(df: pd.DataFrame, window=20, factor=3):
+        factor = int(factor)
+        price_diff = df['close'].diff(factor).fillna(0)
+        hl_range = (df['high'] - df['low']).abs()
+        
+        def calculate_kama_fast(series, n):
+            vals = series.values
+            n_rows = len(vals)
+            
+            change = np.abs(series.diff(n).values)
+            volatility = series.diff().abs().rolling(n).sum().values
+            
+            er = np.divide(change, volatility, out=np.zeros_like(change), where=volatility > 1e-6)
+            
+            sc = (er * (2/(2+1) - 2/(30+1)) + 2/(30+1)) ** 2
+            
+            kama = np.zeros(n_rows)
+            if n_rows >= n:
+                kama[n-1] = np.mean(vals[:n]) 
+                for i in range(n, n_rows):
+                    kama[i] = kama[i-1] + sc[i] * (vals[i] - kama[i-1])
+            
+            return pd.Series(kama, index=series.index)
+
+        kama_range = calculate_kama_fast(hl_range, window)
+        
+        breakout_signal = price_diff / (kama_range + 1e-6)
+        
+        ranked_signal = O.ts_rank_normalized(breakout_signal.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_082(df: pd.DataFrame, q_window=60, rank_window=20):
+        returns = df['close'].pct_change(1).fillna(0)
+        quantile_75 = returns.rolling(q_window).quantile(0.75).fillna(0)
+        
+        price_ts_rank = O.ts_rank_normalized(df['close'], rank_window)
+        
+        condition = quantile_75 > 0
+        inner_signal = np.where(condition, price_ts_rank, -1 * price_ts_rank)
+        
+        raw_signal = -1 * O.ts_rank_normalized(pd.Series(inner_signal, index=df.index), 20)
+        
+        signal = (2 * raw_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_083(df: pd.DataFrame, vol_q_window=50, vol_m_window=20, slope_window=15):
+        vol = df['matchingVolume']
+        vol_q80 = vol.rolling(vol_q_window).quantile(0.8).fillna(0)
+        vol_mean20 = vol.rolling(vol_m_window).mean().fillna(0)
+        
+        def get_slope(series, n):
+            x = np.arange(n)
+            x_var = np.var(x)
+            def calc(y):
+                if len(y) < n: return 0
+                # Beta = Cov(x, y) / Var(x)
+                return np.cov(x, y)[0, 1] / (x_var + 1e-6)
+            return series.rolling(n).apply(calc, raw=True)
+            
+        slope = get_slope(df['close'], slope_window).fillna(0)
+        
+        condition = vol_q80 > vol_mean20
+        inner_signal = np.where(condition, slope, -1 * slope)
+        
+        z_signal = O.zscore(pd.Series(inner_signal, index=df.index), 20)
+        raw_signal = -1 * z_signal.fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_084(df: pd.DataFrame, amt_std_window=40, range_window=20, ema_window=40):
+        
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * df['matchingVolume']
+        amt_std = amt.rolling(amt_std_window).std().fillna(0)
+        
+        ts_max_h = df['high'].rolling(range_window).max()
+        ts_min_l = df['low'].rolling(range_window).min()
+        price_range = (ts_max_h - ts_min_l).fillna(0)
+        
+        smooth_range = price_range.ewm(span=ema_window, adjust=False).mean()
+        
+      
+        ratio = amt_std / (smooth_range + 1e-6)
+        
+        ranked_signal = O.ts_rank_normalized(ratio.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_085(df: pd.DataFrame, window=25):
+        body = df['close'] - df['open']
+        full_range = df['high'] - df['low']
+        efficiency = body / (full_range + 1e-6)
+        
+        y = efficiency.values
+        x = df['matchingVolume'].values
+        
+        def get_residual_fast(y_slice, x_slice):
+            if len(y_slice) < 2: return 0
+            # Beta = Cov(x, y) / Var(x)
+            x_var = np.var(x_slice)
+            if x_var < 1e-6: return 0
+            beta = np.cov(x_slice, y_slice)[0, 1] / x_var
+            alpha = np.mean(y_slice) - beta * np.mean(x_slice)
+            y_hat = alpha + beta * x_slice[-1]
+            return y_slice[-1] - y_hat
+
+        residuals = pd.Series([
+            get_residual_fast(y[i-window:i], x[i-window:i]) 
+            if i >= window else 0 
+            for i in range(len(y))
+        ], index=df.index)
+        
+       
+        z_signal = O.zscore(residuals.fillna(0), window)
+        raw_signal = -1 * z_signal
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_086(df: pd.DataFrame, corr_window=10, rank_window=15, std_window=15):
+        returns = df['close'].pct_change(1).fillna(0)
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * df['matchingVolume']
+      
+        rev_amt_corr = returns.rolling(corr_window).corr(amt).fillna(0)
+        
+        price_ts_rank = O.ts_rank_normalized(df['close'], rank_window)
+        vol = returns.rolling(std_window).std().fillna(0)
+        
+        condition = rev_amt_corr >= 0
+        
+        adjusted_rank = price_ts_rank / (np.sqrt(vol) + 1e-6)
+        
+        inner_signal = np.where(condition, price_ts_rank, adjusted_rank)
+        
+        raw_signal = -1 * O.ts_rank_normalized(pd.Series(inner_signal, index=df.index), 20)
+        
+        signal = (2 * raw_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_087(df: pd.DataFrame, resid_window=20, ts_rank_window=10):
+        y = df['close'].values
+        x = df['matchingVolume'].values
+        
+        def get_residual_fast(y_slice, x_slice):
+            if len(y_slice) < 2: return 0
+            x_var = np.var(x_slice)
+            # Dùng epsilon 1e-6 cho phương sai của Volume
+            if x_var < 1e-6: return 0
+            beta = np.cov(x_slice, y_slice)[0, 1] / x_var
+            alpha = np.mean(y_slice) - beta * np.mean(x_slice)
+            y_hat = alpha + beta * x_slice[-1]
+            return y_slice[-1] - y_hat
+
+        # Tính toán mảng Residual
+        residuals = pd.Series([
+            get_residual_fast(y[i-resid_window:i], x[i-resid_window:i]) 
+            if i >= resid_window else 0 
+            for i in range(len(y))
+        ], index=df.index)
+        
+        ts_rank_resid = O.ts_rank_normalized(residuals, ts_rank_window)
+        cs_rank_resid = O.ts_rank_normalized(residuals, 20) # Giả lập CsRank bằng rank cửa sổ rộng hơn
+        
+        # 4. Tính hiệu số (Crossover)
+        diff_signal = ts_rank_resid - cs_rank_resid
+        
+        final_raw = O.ts_rank_normalized(diff_signal.fillna(0), 20)
+        signal = (2 * final_raw) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_088(df: pd.DataFrame, q_window=50, resid_window=30):
+        price_q60 = df['close'].rolling(q_window).quantile(0.6).fillna(df['close'])
+        y = price_q60.values
+        x = df['matchingVolume'].values
+        
+        def get_residual_fast(y_slice, x_slice):
+            if len(y_slice) < 2: return 0
+            x_var = np.var(x_slice)
+            # Tiêu chuẩn an toàn 1e-6
+            if x_var < 1e-6: return 0
+            beta = np.cov(x_slice, y_slice)[0, 1] / x_var
+            alpha = np.mean(y_slice) - beta * np.mean(x_slice)
+            y_hat = alpha + beta * x_slice[-1]
+            return y_slice[-1] - y_hat
+
+        residuals = pd.Series([
+            get_residual_fast(y[i-resid_window:i], x[i-resid_window:i]) 
+            if i >= resid_window else 0 
+            for i in range(len(y))
+        ], index=df.index)
+        
+       
+        z_signal = O.zscore(residuals.fillna(0), 20)
+        raw_signal = -1 * z_signal
+        
+        ranked_signal = O.ts_rank_normalized(raw_signal, 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_089(df: pd.DataFrame, skew_window=40):
+        vol_skew = df['matchingVolume'].rolling(skew_window).skew().fillna(0)
+        
+        body = df['close'] - df['open']
+        full_range = df['high'] - df['low']
+        efficiency = body / (full_range + 1e-6)
+        
+        raw_combined = vol_skew * efficiency
+        
+        z_signal = O.zscore(raw_combined.fillna(0), skew_window)
+        
+        ranked_signal = O.ts_rank_normalized(z_signal, skew_window)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_090(df: pd.DataFrame, resid_window=15, ts_rank_window=10):
+        y = df['close'].values
+        x = df['matchingVolume'].values
+        
+        def get_residual_fast(y_slice, x_slice):
+            if len(y_slice) < 2: return 0
+            x_var = np.var(x_slice)
+            if x_var < 1e-6: return 0
+            beta = np.cov(x_slice, y_slice)[0, 1] / x_var
+            alpha = np.mean(y_slice) - beta * np.mean(x_slice)
+            y_hat = alpha + beta * x_slice[-1]
+            return y_slice[-1] - y_hat
+
+        residuals = pd.Series([
+            get_residual_fast(y[i-resid_window:i], x[i-resid_window:i]) 
+            if i >= resid_window else 0 
+            for i in range(len(y))
+        ], index=df.index)
+        
+        ts_rank_resid = O.ts_rank_normalized(residuals, ts_rank_window)
+        
+        cs_rank_resid = O.ts_rank_normalized(residuals, 20)
+        
+        diff_signal = ts_rank_resid - cs_rank_resid
+        
+        final_raw = O.ts_rank_normalized(diff_signal.fillna(0), 20)
+        signal = (2 * final_raw) - 1
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_091(df: pd.DataFrame, beta_window=30, delay=5):
+        returns = df['close'].pct_change(1).fillna(0)
+        amt = df['amt'] if 'amt' in df.columns else df['close'] * df['matchingVolume']
+        
+        def get_beta(s1, s2, n):
+            # s1 là Amount, s2 là Returns
+            def calc_beta(s1_slice, s2_slice):
+                if len(s2_slice) < 2: return 0
+                var_s2 = np.var(s2_slice)
+                if var_s2 < 1e-6: return 0
+                return np.cov(s1_slice, s2_slice)[0, 1] / var_s2
+            
+            return pd.Series([
+                calc_beta(s1.values[i-n:i], s2.values[i-n:i]) 
+                if i >= n else 0 
+                for i in range(len(s1))
+            ], index=s1.index)
+
+        amount_beta = get_beta(amt, returns, beta_window)
+       
+        beta_diff = amount_beta - amount_beta.shift(delay).fillna(0)
+        
+        ranked_signal = O.ts_rank_normalized(beta_diff.fillna(0), 20)
+        signal = -1 * (2 * ranked_signal - 1)
+        
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_093(df: pd.DataFrame, window=20):
+        vol = df['matchingVolume']
+       
+        ema_vol = vol.ewm(span=window, adjust=False).mean()
+        sma_vol = vol.rolling(window).mean()
+        
+        std_vol = vol.rolling(window).std().fillna(0)
+        
+        vol_diff_ratio = (ema_vol - sma_vol) / (std_vol + 1e-6)
+        
+        ranked_signal = O.ts_rank_normalized(vol_diff_ratio.fillna(0), 20)
+        signal = -1 * (2 * ranked_signal - 1)
+        
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_104(df: pd.DataFrame, window=25):
+        """
+        ID: 28
+        Name: relative_volume_shadow_imbalance
+        Formula: ($volume/(TS_MAX($volume, 25) + 1e-8)) * 
+                 (($high - $open)/$open - ($open - $low)/$open)
+        Logic: Trọng số hóa sự mất cân bằng bóng nến bằng tỷ lệ Volume hiện tại so với đỉnh 25 phiên.
+        """
+        # 1. Tính toán Relative Volume Intensity
+        # Giá trị nằm trong khoảng [0, 1]. 1 nghĩa là Volume đang ở đỉnh 25 phiên.
+        max_vol = df['matchingVolume'].rolling(window).max()
+        vol_intensity = df['matchingVolume'] / (max_vol + 1e-8)
+        
+        # 2. Tính toán Shadow Imbalance (Bất đối xứng bóng nến)
+        # (Bóng trên / Open) - (Bóng dưới / Open)
+        upper_shadow = (df['high'] - df['open']) / (df['open'] + 1e-8)
+        lower_shadow = (df['open'] - df['low']) / (df['open'] + 1e-8)
+        imbalance = upper_shadow - lower_shadow
+        
+        # 3. Kết hợp bằng phép nhân
+        # Ý nghĩa: Nếu có sự lệch bóng nến cực lớn nhưng Vol thấp, tín hiệu sẽ bị triệt tiêu.
+        # Tín hiệu chỉ bùng nổ khi "Rút chân/Đẩy đỉnh" đi kèm Vol đột biến.
+        raw_signal = vol_intensity * imbalance
+        
+        # 4. Chuẩn hóa Rank [-1, 1]
+        ranked_signal = O.ts_rank_normalized(raw_signal.fillna(0), 20)
+        signal = (2 * ranked_signal) - 1
+        
+        return signal.fillna(0)
+
 class Domains:
     @staticmethod
     def compute_vwap(df, window=200):
@@ -8777,8 +10852,9 @@ class Domains:
         new_alpha_list = [f"alpha_new_{str(name).rjust(3, '0')}" for name in list(range(1, 101))]
         alpha_full_factor = [f"alpha_full_factor_{str(i).rjust(3, '0')}" for i in range(1, 110)]
         alpha_popbo = [f"alpha_popbo_{str(i).rjust(3, '0')}" for i in range(1, 199)]
+        alpha_factor_miner = [f"alpha_factor_miner_{str(i).rjust(3, '0')}" for i in range(0, 300)]
         
-        for alpha_name in base_list + custom_c_list + new_alpha_list + alpha_full_factor + alpha_popbo:
+        for alpha_name in base_list + custom_c_list + new_alpha_list + alpha_full_factor + alpha_popbo + alpha_factor_miner:
             if isinstance(alpha_name, int):
                 alpha_name = str(alpha_name).rjust(3, '0')
             if not alpha_name.startswith('alpha_'):

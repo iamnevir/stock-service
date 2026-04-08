@@ -18,6 +18,32 @@ ALPHA_PARAM_SCHEMAS = {
         ("window", int),
         ("factor", int),
         ("window_norm", int),
+    ],
+    "alpha_factor_miner_018":[
+        ("ema_window", int),
+        ("delay_step", int),
+        ("std_window", int),
+    ],
+    "alpha_factor_miner_029":[
+        ("range_std", int),
+        ("ret_std", int),
+        ("threshold", float),
+    ],
+    "alpha_full_factor_031":[
+        ("short_delta", int),
+        ("trend_delta", int),
+        ("window_rank", float),
+    ],
+     "alpha_factor_miner_041":[
+        ("ema_window", int),
+        ("delay_step", int),
+        ("std_window", int),
+    ],
+    "alpha_factor_miner_046":[
+        ("ret_window", int),
+        ("ema_window", int),
+        ("delay_step", int),
+        ("std_window", int),
     ]
 }
 GEN_SCHEMAS = {
