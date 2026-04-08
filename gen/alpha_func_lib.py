@@ -10811,6 +10811,35 @@ class Alphas:
         
         return signal.fillna(0)
 
+    @staticmethod
+    def alpha_factor_miner_115(df: pd.DataFrame, window: int = 2, factor: int = 20) -> pd.Series:
+        factor = int(factor)
+        low_min = df['low'].rolling(window=window).min()
+        high_max = df['high'].rolling(window=window).max()
+        price_range = high_max - low_min
+        
+        y = (df['close'] - low_min) / price_range.replace(0, np.nan)
+        
+        x = df['matchingVolume'].astype(float)
+        
+        rolling_cov_xy = y.rolling(window=factor).cov(x)
+        rolling_var_x = x.rolling(window=factor).var()
+        
+        beta = rolling_cov_xy / rolling_var_x.replace(0, np.nan)
+        alpha = y.rolling(window=factor).mean() - beta * x.rolling(window=factor).mean()
+        
+        # Residual: epsilon = y - (beta * x + alpha)
+        residual = y - (beta * x + alpha)
+        
+        rolling_mean_res = residual.rolling(window=factor).mean()
+        rolling_std_res = residual.rolling(window=factor).std()
+        
+        z_score = (residual - rolling_mean_res) / rolling_std_res.replace(0, np.nan)
+        
+        alpha_final = (-z_score).clip(-1, 1)
+        
+        return -alpha_final.ffill().fillna(0)
+
 class Domains:
     @staticmethod
     def compute_vwap(df, window=200):
