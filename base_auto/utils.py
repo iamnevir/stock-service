@@ -187,6 +187,9 @@ class ScanParams:
             "window_corr_volume": 3,
             "ret_window": 4,
             "ema_window":5,
+            "delay_step": 6,
+            "std_fast": 7,
+            "std_slow": 8
         }
 
         # Lấy các keys và sắp xếp theo priority trước, sau đó theo tên cho ổn định
