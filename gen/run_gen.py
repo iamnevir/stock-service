@@ -1,4 +1,6 @@
 import json
+import pymongo
+from pymongo import MongoClient
 import numpy as np
 from itertools import product
 import pandas as pd
@@ -10,6 +12,9 @@ from core import Simulator
 from alpha_func_lib import Domains
 import pandas as pd
 import numpy as np
+from auto.utils import get_mongo_uri
+from bson import ObjectId
+
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -23,6 +28,8 @@ from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+
+
 
 class PKLToXLSXExporter:
     def __init__(self, df, gen=None):
@@ -803,12 +810,12 @@ def upload_xlsx_to_gdrive(
             # ---------- Save result ----------
             sheet_url = f"https://docs.google.com/spreadsheets/d/{file_id}"
 
-            upload_results[result_key] = sheet_url
-            with open(output_json, "w", encoding="utf-8") as f:
-                json.dump(upload_results, f, indent=2, ensure_ascii=False)
+            # upload_results[result_key] = sheet_url
+            # with open(output_json, "w", encoding="utf-8") as f:
+            #     json.dump(upload_results, f, indent=2, ensure_ascii=False)
 
-            print(f"✅ Upload & share OK: {sheet_url}")
-            print(f"🔗 Updated JSON: {output_json}")
+            # print(f"✅ Upload & share OK: {sheet_url}")
+            # print(f"🔗 Updated JSON: {output_json}")
 
             return sheet_url
 
@@ -871,7 +878,135 @@ def generate_time_ranges(mode):
 
     raise ValueError(f"Unknown mode: {mode}")
 
-if __name__ == "__main__":
+
+def get_alpha_doc_by_id(alpha_id):
+    """
+    Query alpha document from gen_alpha collection by alpha_name or ObjectId
+    """
+    try:
+        import sys
+        if "/home/ubuntu" not in sys.path:
+            sys.path.insert(0, "/home/ubuntu")
+        
+        mongo_client = MongoClient(get_mongo_uri("mgc3"))
+        db = mongo_client["alpha"]
+        alpha_coll = db["gen_alpha"]
+        
+        # Try finding by alpha_name (common case in this pipeline)
+        doc = alpha_coll.find_one({"alpha_name": alpha_id})
+        
+        # If not found, try by ObjectId
+        if not doc:
+            try:
+                doc = alpha_coll.find_one({"_id": ObjectId(alpha_id)})
+            except:
+                pass
+        
+        return doc
+    except Exception as e:
+        print(f"Error querying alpha doc for ID {alpha_id}: {e}")
+        return None
+
+def load_alpha_from_doc(doc):
+    if not doc or 'alpha_code' not in doc or 'alpha_name' not in doc:
+        return None
+        
+    alpha_name = doc['alpha_name']
+    alpha_code = doc['alpha_code']
+    
+    clean_code = alpha_code.replace("@staticmethod", "").strip()
+    
+    import pandas as pd
+    import numpy as np
+    
+    try:
+        # Thực thi mã trong globals() của module __main__ 
+        # để multiprocessing có thể tìm thấy hàm khi pickle
+        exec(clean_code, globals())
+        
+        func = globals().get(alpha_name)
+        if not func:
+            # Nếu không tìm thấy theo tên, thử tìm hàm nào có prefix alpha_ vừa được nạp
+            for name in dir():
+                if name.startswith("alpha_") and callable(globals()[name]):
+                    func = globals()[name]
+                    alpha_name = name
+                    break
+        
+        if func:
+            # Gán module để pickle định vị được hàm
+            func.__module__ = "__main__"
+            return {alpha_name: func}
+            
+    except Exception as e:
+        print(f"Error loading function for {alpha_name}: {e}")
+    
+    return None
+
+def convert_param_range(mongo_param_range):
+    """
+    Convert mongo param_range {'window': [5, 200, 5]} 
+    to ScanParams format {'window': {'start': 5, 'end': 200, 'step': 5}}
+    """
+    if not mongo_param_range or not isinstance(mongo_param_range, dict):
+        return {}
+        
+    converted = {}
+    for param_name, range_list in mongo_param_range.items():
+        if isinstance(range_list, list) and len(range_list) >= 3:
+            converted[param_name] = {
+                "start": range_list[0],
+                "end": range_list[1],
+                "step": range_list[2]
+            }
+        else:
+            # Nếu đã đúng định dạng hoặc là giá trị đơn lẻ, giữ nguyên
+            converted[param_name] = range_list
+            
+    return converted
+
+
+def statistics_strategy(df):
+    total = len(df)
+    if total == 0:
+        return "DataFrame trống."
+
+    # Làm sạch tên cột (loại bỏ khoảng trắng thừa nếu có)
+    df.columns = df.columns.str.strip()
+
+    # 1. % Net Profit > 0 VÀ TVR > 0
+    cond1 = (df['Net Profit'] > 0) & (df['TVR'] > 0)
+    profit_positive = cond1.sum() / total * 100
+
+    # 2. % Sharpe Ratio > 1 VÀ TVR > 0
+    cond2 = (df['Sharpe Ratio'] > 1) & (df['TVR'] > 0)
+    sharpe_high = cond2.sum() / total * 100
+
+    # 3. % Net Profit > 1200 VÀ MDD (%) < 20 VÀ TVR > 0
+    cond3 = (df['Net Profit'] > 1200) & (df['MDD (%)'] < 20) & (df['TVR'] > 0)
+    custom_condition = cond3.sum() / total * 100
+
+    # In kết quả
+    print(f"--- Báo cáo thống kê (Tổng số: {total} chiến thuật) ---")
+    print(f"1. Net Profit > 0 & TVR > 0:          {profit_positive:.2f}%")
+    print(f"2. Sharpe Ratio > 1 & TVR > 0:        {sharpe_high:.2f}%")
+    print(f"3. Profit > 1200, MDD < 20 & TVR > 0: {custom_condition:.2f}%")
+    
+    return {
+        "profit": profit_positive,
+        "sharpe": sharpe_high,
+        "profit_1200_mdd20": custom_condition
+    }
+
+
+def main():
+    import sys
+    if len(sys.argv) < 2:
+        print("Usage: python /home/ubuntu/nevir/huy/scan_full/run.py <alpha_id>")
+        return
+    
+    alpha_id = sys.argv[1]
+    
     MODE = "FULL"          # ← đổi duy nhất dòng này
     gen = "1_1"
     source = None
@@ -879,37 +1014,46 @@ if __name__ == "__main__":
     folder_path = f"/home/ubuntu/nevir/gen/results_{gen}/"
     os.makedirs(folder_path, exist_ok=True)
     OUTPUT_JSON = f"/home/ubuntu/nevir/gen/r_{gen}.json"
+    
     if os.path.exists(OUTPUT_JSON):
         with open(OUTPUT_JSON, 'r') as f:
             upload_results = json.load(f)
     else:
         upload_results = {}
+    
     time_ranges = generate_time_ranges(MODE)
-    alpha_list = [
-        'alpha_popbo_advance_v2_026_wf'
-    ]
+
+    alpha_doc = get_alpha_doc_by_id(alpha_id)
+    if alpha_doc:
+        alpha_name = alpha_doc['alpha_name']
+        print(f"✅ Processing Alpha from DB: {alpha_name}")
+        
+        dic_alpha_dynamic = load_alpha_from_doc(alpha_doc)
+        if not dic_alpha_dynamic:
+            print("❌ Failed to load alpha function.")
+            exit()
+            
+        alpha_params = convert_param_range(alpha_doc.get('param_range', {}))
+        if not alpha_params:
+            print("⚠️ No param_range found in DB, using default window.")
+            
+        DIC_ALPHAS = dic_alpha_dynamic
+        alpha_list = [alpha_name]
+        print(f"⚙️ Params: {alpha_params}")
+    else:
+        print(f"❌ Could not find doc with ID {alpha_id}")
+        exit()
+
     for alpha_name in alpha_list:
-        alpha_params = {
-            
-            "window": {"start": 10, "end": 100, "step": 10 },
-            "sub_window": {"start": 1, "end": 4, "step": 1},
-            
-        }
 
         dic_freqs = load_dic_freqs(source)
-        DIC_ALPHAS = Domains.get_list_of_alphas()
-        print(DIC_ALPHAS)
-        exit()
+        DIC_ALPHAS = dic_alpha_dynamic
 
         for tr in time_ranges:
             start = tr["start"]
             end = tr["end"]
             year_label = tr["label"]
 
-            save_file = os.path.join(
-                folder_path,
-                f"{alpha_name}_{year_label}.xlsx"
-            )
 
             print(f"=== {MODE} | {alpha_name} | {year_label} ===")
 
@@ -938,24 +1082,33 @@ if __name__ == "__main__":
 
             if lst_passed_parallel:
                 df = pd.DataFrame(lst_passed_parallel)
-                exporter = PKLToXLSXExporter(df,gen)
-                exporter.format_dataframe()
-                exporter.export_to_xlsx(save_file)
-                print(f"✅ Saved results to {save_file}")
+                statistics = statistics_strategy(df)
                 try:
-                    upload_xlsx_to_gdrive(
-                        save_file=save_file,
-                        parent_folder_id="1ZI65HWxDFaPcXQYyJFdu47cLQtwJ_4Iw",
-                        output_json=OUTPUT_JSON,
-                        upload_results=upload_results,
-                        result_key=f"{alpha_name}_{year_label}",
-                        max_retries=3,
-                        base_delay=5
+                    mongo_client = MongoClient(get_mongo_uri("mgc3"))
+                    db = mongo_client["alpha"]
+                    alpha_coll = db["gen_alpha"]
+                    
+                    result = alpha_coll.update_one(
+                        {"_id": ObjectId(alpha_id)},
+                        {"$set": {"statistics_strategy": statistics, "run_all": 3}}
                     )
+                    print(f"📦 Đã cập nhật statistics_strategy cho {result.modified_count} Alpha vào DB.")
                 except Exception as e:
-                    print(f"   ❌ Upload failed after retries: {e}")
-                    continue
+                    alpha_coll.update_one(
+                        {"_id": ObjectId(alpha_id)},
+                        {"$set": {"run_all": -1}}
+                    )
+                    print(f"❌ Lỗi khi cập nhật statistics_strategy: {e}")
+
             else:
+                alpha_coll.update_one(
+                    {"_id": ObjectId(alpha_id)},
+                    {"$set": {"run_all": -1}}
+                )
                 print(f"❌ No configs passed for {year_label}")
 
     print(f"\nAll done in {time.time() - start_time:.1f} seconds.")
+
+
+if __name__ == "__main__":
+    main()

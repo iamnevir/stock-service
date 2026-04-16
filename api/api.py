@@ -254,6 +254,52 @@ def kill_alpha_process():
             "result": True
         }), 200
 
+
+@stock_bp.route('/kill_gen_process', methods=['POST'])
+def kill_gen_alpha_process():
+    # try:
+        data = request.json
+        _id = data.get("_id")
+
+        if not _id:
+            print("Missing _id")
+            return jsonify({"message": "Missing _id"}), 400
+        # 3️⃣ Lọc process theo _id và script
+        target_procs = []
+        for proc in psutil.process_iter(["pid", "cmdline"]):
+            try:
+                cmd = proc.info["cmdline"]
+                if not cmd:
+                    continue
+                if ("/home/ubuntu/anaconda3/bin/python" in cmd[0] and
+                    "/home/ubuntu/nevir/gen/run_gen.py" in cmd[1] and
+                    _id in cmd):
+                    target_procs.append(proc)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+
+        # 5️⃣ SIGTERM các process
+        for proc in target_procs:
+            try:
+                proc.terminate()
+            except Exception:
+                continue
+
+        # 6️⃣ Đợi tối đa 5s
+        gone, alive = psutil.wait_procs(target_procs, timeout=5)
+
+        # 7️⃣ SIGKILL nếu vẫn còn
+        for proc in alive:
+            try:
+                proc.kill()
+            except Exception:
+                continue
+
+        return jsonify({
+            "result": True
+        }), 200
+
     # except Exception as e:
     #     return jsonify({"message": str(e)}), 500
      
@@ -452,6 +498,25 @@ def get_server_status():
     running = int(subprocess.check_output(cmd, shell=True))
     server_status = {"cpu":round(running/os.cpu_count()*100,0)}
     return jsonify({"message": f"Get success.","result":server_status}), 200
+
+
+
+@stock_bp.route('/run_all_gen_alpha', methods=['POST'])
+def run_all_gen_alpha():
+    data = request.json
+    alpha_id = data.get("id")
+    if not alpha_id:
+        return jsonify({"message": "Missing id"}), 400
+    
+    p = subprocess.Popen(
+        ["/home/ubuntu/anaconda3/bin/python", "/home/ubuntu/nevir/gen/run_gen.py", alpha_id],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True
+    )
+    print(f"Started run_all_wfa with PID {p.pid} for id {alpha_id}")
+    sleep(3)  # give some time for the process to start
+    return jsonify({"message": f"Running all WFA for id {alpha_id}","result": True}), 200
 
 def create_app():
     app = Flask(__name__)
