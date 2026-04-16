@@ -967,36 +967,59 @@ def convert_param_range(mongo_param_range):
 
 
 def statistics_strategy(df):
-    total = len(df)
-    if total == 0:
-        return "DataFrame trống."
-
-    # Làm sạch tên cột (loại bỏ khoảng trắng thừa nếu có)
     df.columns = df.columns.str.strip()
-
-    # 1. % Net Profit > 0 VÀ TVR > 0
-    cond1 = (df['netProfit'] > 0) & (df['tvr'] > 0)
-    profit_positive = cond1.sum() / total * 100
-
-    # 2. % Sharpe Ratio > 1 VÀ TVR > 0
-    cond2 = (df['sharpe'] > 1) & (df['tvr'] > 0)
-    sharpe_high = cond2.sum() / total * 100
-
-    # 3. % Net Profit > 1200 VÀ MDD (%) < 20 VÀ TVR > 0
-    cond3 = (df['netProfit'] > 1200) & (df['mddPct'] < 20) & (df['tvr'] > 0)
-    custom_condition = cond3.sum() / total * 100
-
-    # In kết quả
-    print(f"--- Báo cáo thống kê (Tổng số: {total} chiến thuật) ---")
-    print(f"1. Net Profit > 0 & TVR > 0:          {profit_positive:.2f}%")
-    print(f"2. Sharpe Ratio > 1 & TVR > 0:        {sharpe_high:.2f}%")
-    print(f"3. Profit > 1200, MDD < 20 & TVR > 0: {custom_condition:.2f}%")
+    v3_total_count = ((df['freq'] > 0) & (df['tvr'] > 0)).sum()
     
-    return {
-        "profit": profit_positive,
-        "sharpe": sharpe_high,
-        "profit_1200_mdd20": custom_condition
+    if v3_total_count == 0:
+        return "Không có dữ liệu thỏa mãn điều kiện Frequency > 0 và tvr > 0 (V3 = 0)."
+
+    # % Net Profit > 0 & tvr > 0
+    profit_positive_pct = ((df['netProfit'] > 0) & (df['tvr'] > 0)).sum() / v3_total_count * 100
+    
+    # % Sharpe Ratio > 1 & tvr > 0
+    sharpe_high_pct = ((df['sharpe'] > 1) & (df['tvr'] > 0)).sum() / v3_total_count * 100
+    
+    # % netProfit > 1200 & MDD (%) < 20 & tvr > 0
+    cond_1200 = (df['netProfit'] > 1200) & (df['mddPct'] < 20) & (df['tvr'] > 0)
+    count_1200_mdd20 = cond_1200.sum()
+    profit_1200_mdd20_pct = (count_1200_mdd20 / v3_total_count * 100)
+
+    # 3. Tính toán bảng tỷ lệ theo các mức netProfit (Cột T, U trong ảnh)
+    # Các mức: 100, 120, 150, 180, 210, 240, 270, 300, 450, 600
+    thresholds = [100, 120, 150, 180, 210, 240, 270, 300, 450, 600]
+    detailed_stats = {}
+
+    for val in thresholds:
+        # Điều kiện: netProfit > val VÀ MDD (%) < 20
+        cond = (df['netProfit'] > val) & (df['mddPct'] < 20)
+        count = cond.sum()
+        percentage = (count / v3_total_count * 100)
+        
+        # Lưu kết quả theo format bạn cần
+        detailed_stats[f"net_{val}"] = {
+            "count": int(count),
+            "percentage": float(round(percentage, 2))
+        }
+
+    # 4. Gom tất cả kết quả vào một Dictionary
+    result = {
+        "total_configs": int(v3_total_count),     # Ô 327,600
+        "profit": float(round(profit_positive_pct, 2)),
+        "sharpe": float(round(sharpe_high_pct, 2)),
+        "profit_1200_mdd20": float(round(profit_1200_mdd20_pct, 2)), # Ô 21.02%
+        "count_1200_mdd20": int(count_1200_mdd20),                  # Ô 68,850
+        "levels_mdd20": detailed_stats
     }
+    print(f"--- THỐNG KÊ CHIẾN THUẬT ---")
+    print(f"V3 Total Count: {result['total_configs']}")
+    print(f"Profit > 0 (%): {result['profit']}%")
+    print(f"Sharpe > 1 (%): {result['sharpe']}%")
+    print(f"Mức 1200 (Count): {result['count_1200_mdd20']}")
+    print(f"Mức 1200 (%):     {result['profit_1200_mdd20']}%")
+    print("-" * 30)
+    for level, data in result['levels_mdd20'].items():
+        print(f"{level}: {data['percentage']}% (Count: {data['count']})")
+    return result
 
 
 def main():
