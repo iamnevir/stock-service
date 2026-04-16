@@ -975,15 +975,15 @@ def statistics_strategy(df):
     df.columns = df.columns.str.strip()
 
     # 1. % Net Profit > 0 VÀ TVR > 0
-    cond1 = (df['Net Profit'] > 0) & (df['TVR'] > 0)
+    cond1 = (df['netProfit'] > 0) & (df['tvr'] > 0)
     profit_positive = cond1.sum() / total * 100
 
     # 2. % Sharpe Ratio > 1 VÀ TVR > 0
-    cond2 = (df['Sharpe Ratio'] > 1) & (df['TVR'] > 0)
+    cond2 = (df['sharpe'] > 1) & (df['tvr'] > 0)
     sharpe_high = cond2.sum() / total * 100
 
     # 3. % Net Profit > 1200 VÀ MDD (%) < 20 VÀ TVR > 0
-    cond3 = (df['Net Profit'] > 1200) & (df['MDD (%)'] < 20) & (df['TVR'] > 0)
+    cond3 = (df['netProfit'] > 1200) & (df['mddPct'] < 20) & (df['tvr'] > 0)
     custom_condition = cond3.sum() / total * 100
 
     # In kết quả
