@@ -10965,6 +10965,206 @@ class Alphas:
         normalized = normalized.ffill().fillna(0)
         return -normalized.clip(-1, 1)
 
+    @staticmethod
+    def alpha_popbo_new_003_tanh(df, window=1, factor=10):
+        factor = int(factor)
+        # Logic gốc: Tính tổng lũy kế trong 6 ngày của chênh lệch giá điều chỉnh.
+        # Chuẩn hóa B (Dynamic Tanh): Giữ lại cường độ (magnitude) của tín hiệu.
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        delay_close = close.shift(1)
+        cond_up = close > delay_close
+        cond_down = close < delay_close
+        min_low_delay = pd.concat([low, delay_close], axis=1).min(axis=1)
+        max_high_delay = pd.concat([high, delay_close], axis=1).max(axis=1)
+        raw = np.where(close == delay_close, 0,
+                    np.where(cond_up, close - min_low_delay,
+                                close - max_high_delay))
+        raw_series = pd.Series(raw, index=df.index)
+        raw_sum = raw_series.rolling(window).sum()
+        std_dev = raw_sum.rolling(factor).std().replace(0, np.nan)
+        normalized = np.tanh(raw_sum / std_dev)
+        return normalized.fillna(0).clip(-1, 1)
+
+    @staticmethod
+    def alpha_popbo_new_007_wf(df, window=40, factor=1):
+        factor = int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        volume = df.get('matchingVolume', df.get('volume', 1))
+
+        diff = vwap - df['close']
+
+        max_diff = diff.rolling(window=3).max()
+        min_diff = diff.rolling(window=3).min()
+
+        rank_max = max_diff.rolling(window=window).rank(pct=True)
+        rank_min = min_diff.rolling(window=window).rank(pct=True)
+
+        delta_vol = volume.diff(3)
+        rank_delta = delta_vol.rolling(window=factor).rank(pct=True)
+
+        raw = (rank_max + rank_min) * rank_delta
+
+        p1 = 0.05
+        p2 = window
+        low = raw.rolling(window=p2).quantile(p1)
+        high = raw.rolling(window=p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        normalized = normalized.ffill().fillna(0)
+        return -normalized.clip(-1, 1)
+
+    @staticmethod
+    def alpha_popbo_new_011_tanh(df, window=1, factor=100):
+        factor = int(factor)
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        hl_range = high - low
+        hl_range = hl_range.replace(0, np.nan)
+        raw = ((close - low) - (high - close)) / hl_range * volume
+        raw_sum = raw.rolling(window).sum()
+        normalized = np.tanh(raw_sum / raw_sum.rolling(factor).std().replace(0, np.nan))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_new_013_zscore(df, window=30):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        raw = (df['high'] * df['low'])**0.5 - vwap
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std()
+        normalized = ((raw - mean) / (std + 1e-9)).clip(-1, 1)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_new_014_zscore(df, window=5):
+        close = df['close']
+        raw = close - close.shift(5)
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std()
+        z_score = (raw - mean) / std.where(std != 0, np.nan)
+        normalized = z_score.clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_new_017_tanh(df, window=20, factor=2):
+        factor = int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        max_vwap = vwap.rolling(window).max()
+        raw = (vwap - max_vwap).rank(pct=True)
+        delta_close = df['close'].diff(factor)
+        raw = raw * delta_close
+        raw = raw.ffill()
+        std = raw.rolling(window).std()
+        normalized = np.tanh(raw / (std + 1e-9))
+        normalized = normalized.fillna(0)
+        return normalized.clip(-1, 1)
+
+    @staticmethod
+    def alpha_popbo_new_031_tanh(df, window=3, factor=10):
+        factor = int(factor)
+        close = df['close']
+        raw = (close - close.rolling(window).mean()) / (close.rolling(window).mean() + 1e-9) * 100
+        normalized = np.tanh(raw / (raw.rolling(factor).std() + 1e-9))
+        return normalized.fillna(0).astype(float)
+
+    @staticmethod
+    def alpha_popbo_new_034_zscore(df, window=3, factor=70):
+        factor = int(factor)
+        close = df['close']
+        raw = close.rolling(window).mean() / close
+        rolling_mean = raw.rolling(factor).mean()
+        rolling_std = raw.rolling(factor).std().replace(0, np.nan)
+        z_score = (raw - rolling_mean) / rolling_std
+        normalized = z_score.clip(-1, 1)
+        return -normalized.fillna(0).astype(float)
+
+    @staticmethod
+    def alpha_popbo_new_047_sign(df, window=5, factor=10):
+        factor = int(factor)
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        tsmax_high = high.rolling(window).max()
+        tsmin_low = low.rolling(window).min()
+        raw = (tsmax_high - close) / (tsmax_high - tsmin_low + 1e-9) * 100
+        sma = raw.ewm(span=factor, adjust=False).mean()
+        diff = sma.diff()
+        normalized = pd.Series(np.sign(diff), index=df.index)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_new_048_wf(df, window=10, factor=40):
+        factor = int(factor)
+        p1 = 0.05
+        p2 = 100
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        sign1 = np.sign(close - close.shift(1))
+        sign2 = np.sign(close.shift(1) - close.shift(2))
+        sign3 = np.sign(close.shift(2) - close.shift(3))
+        raw_sum = sign1 + sign2 + sign3
+        raw_rank = raw_sum.rolling(window=window, min_periods=1).rank(pct=True)
+        raw = -1 * raw_rank * volume.rolling(window=factor, min_periods=1).sum() / (volume.rolling(window=window, min_periods=1).sum() + 1e-9)
+        low = raw.rolling(window=p2, min_periods=1).quantile(p1)
+        high = raw.rolling(window=p2, min_periods=1).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        normalized = normalized.ffill().fillna(0)
+        return -normalized.clip(-1, 1)
+
+    @staticmethod
+    def alpha_popbo_new_054_rank(df, window=40, factor=30):
+        factor = int(factor)
+        # Raw components
+        close_open_diff = df['close'] - df['open']
+        abs_close_open = np.abs(close_open_diff)
+        std_abs = abs_close_open.rolling(window).std()
+        corr_coef = df['close'].rolling(window).corr(df['open'])
+        # Raw alpha
+        raw = -1 * (std_abs + close_open_diff + corr_coef)
+        # Normalization: Rolling Rank (Case A)
+        normalized = (raw.rolling(factor).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_new_059_wf(df, window=1, factor=60):
+        factor = int(factor)
+        # Raw calculation
+        close = df['close']
+        low = df['low']
+        high = df['high']
+        delay_close = close.shift(1)
+        cond1 = close == delay_close
+        cond2 = close > delay_close
+        min_val = pd.concat([low, delay_close], axis=1).min(axis=1)
+        max_val = pd.concat([high, delay_close], axis=1).max(axis=1)
+        raw = pd.Series(np.where(cond1, 0, np.where(cond2, close - min_val, close - max_val)), index=df.index)
+        raw_sum = raw.rolling(window, min_periods=1).sum()
+        # Normalization: Winsorized Fisher (Case E) for heavy tails
+        p1 = 0.05  # Hardcoded quantile threshold
+        low_bound = raw_sum.rolling(factor).quantile(p1)
+        high_bound = raw_sum.rolling(factor).quantile(1 - p1)
+        winsorized = raw_sum.clip(lower=low_bound, upper=high_bound)
+        normalized = np.arctanh(((winsorized - low_bound) / (high_bound - low_bound + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0).clip(-1, 1)
+
+    @staticmethod
+    def alpha_popbo_new_065_wf(df, window=3, factor=100):
+        factor = int(factor)
+        close = df['close']
+        raw = close.rolling(window).mean() / close
+        p1 = 0.05
+        low = raw.rolling(factor).quantile(p1)
+        high = raw.rolling(factor).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+
 class Domains:
     @staticmethod
     def compute_vwap(df, window=200):
@@ -11000,7 +11200,11 @@ class Domains:
             'alpha_full_factor_062_zscore_clipping',"alpha_full_factor_095_regime_adaptive", 'alpha_full_factor_066_liq_accel',
             'alpha_full_factor_090_reg_adaptive', 'alpha_full_factor_099_eff_macd', 'alpha_full_factor_046_dynamic_reversion',
             'alpha_full_factor_007_volume_breakout_trend', 'alpha_full_factor_085_rank_vol_efficiency', 'alpha_full_factor_b08_signed_power_compress',
-            'alpha_mining_001_rank', 'alpha_mining_001_tanh', 'alpha_mining_001_zscore', 'alpha_mining_001_sign', 'alpha_mining_001_wf'
+            'alpha_mining_001_rank', 'alpha_mining_001_tanh', 'alpha_mining_001_zscore', 'alpha_mining_001_sign', 'alpha_mining_001_wf',
+
+            'alpha_popbo_new_003_tanh', 'alpha_popbo_new_007_wf', 'alpha_popbo_new_011_tanh', 'alpha_popbo_new_013_zscore', 'alpha_popbo_new_014_zscore',
+            'alpha_popbo_new_017_tanh', 'alpha_popbo_new_031_tanh', 'alpha_popbo_new_034_zscore', 'alpha_popbo_new_047_sign', 'alpha_popbo_new_048_wf',
+            'alpha_popbo_new_054_rank', 'alpha_popbo_new_059_wf', 'alpha_popbo_new_065_wf'
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
