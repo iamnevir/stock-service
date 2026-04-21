@@ -168,7 +168,7 @@ def build_action_matrix(id_to_trade_df):
         tmp = tmp.set_index('datetime')
 
         # 👇 GOM THEO 3 GIÂY
-        bucket = tmp.index.floor("3S")
+        bucket = tmp.index.floor("3s")
         tmp = tmp.groupby(bucket).last()
 
         tmp.rename(columns={'action': str(sid)}, inplace=True)

@@ -11164,6 +11164,70 @@ class Alphas:
         normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
         return -normalized.fillna(0)
 
+    @staticmethod
+    def alpha_popbo_new_120_rank(df, window=20):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        raw = (vwap - df['close']) / (vwap + df['close'] + 1e-9)
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_new_124_rank(df, window=10, factor=30):
+        factor = int(factor)
+        close = df['close']
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        raw_diff = close - vwap
+        tsmax = close.rolling(window).max()
+        rank_tsmax = tsmax.rolling(window).rank(pct=True)
+        
+        decay_factor = rank_tsmax.rolling(factor).mean()
+        decay_factor = decay_factor.replace(0, np.nan)
+        raw = raw_diff / decay_factor
+        param = max(20, window // 2)  
+        normalized = (raw.rolling(param).rank(pct=True) * 2) - 1
+        normalized = normalized.ffill().fillna(0)
+        return normalized.clip(-1, 1)
+
+    @staticmethod
+    def alpha_popbo_new_163_tanh(df, window=10):
+        # Logic gốc tương tự
+        ret = df['close'].pct_change()
+        mean_vol = df.get('matchingVolume', df.get('volume', 1)).rolling(window).mean()
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        high_close = df['high'] - df['close']
+        raw = (-1 * ret) * mean_vol * vwap * high_close
+        raw = raw.ffill()
+        # Dynamic Tanh: giữ cường độ
+        param = max(window, 10)
+        std = raw.rolling(param).std().replace(0, np.nan)
+        normalized = np.tanh(raw / std)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_popbo_new_178_rank(df, window=25):
+        # Raw: (close - prev_close) / prev_close * volume
+        raw = (df['close'] - df['close'].shift(1)) / df['close'].shift(1).replace(0, np.nan) * df.get('matchingVolume', df.get('volume', 1))
+        # Rolling Rank normalization
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0).clip(-1, 1)
+
+    @staticmethod
+    def alpha_popbo_new_191_wf(df, window=30, factor=30):
+        factor = int(factor)
+        mean_vol = df['matchingVolume'].rolling(window).mean()
+        corr_term = mean_vol.rolling(factor).corr(df['low'])
+        hl_avg = (df['high'] + df['low']) / 2
+        raw = (corr_term + hl_avg) - df['close']
+        # Normalization: Winsorized Fisher (Case E)
+        p1 = 0.05  # Hardcoded quantile for winsorization
+        p2 = max(window, factor)  # Rolling window for quantile calculation
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        # Fisher Transform approximation
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
 
 class Domains:
     @staticmethod
@@ -11204,7 +11268,8 @@ class Domains:
 
             'alpha_popbo_new_003_tanh', 'alpha_popbo_new_007_wf', 'alpha_popbo_new_011_tanh', 'alpha_popbo_new_013_zscore', 'alpha_popbo_new_014_zscore',
             'alpha_popbo_new_017_tanh', 'alpha_popbo_new_031_tanh', 'alpha_popbo_new_034_zscore', 'alpha_popbo_new_047_sign', 'alpha_popbo_new_048_wf',
-            'alpha_popbo_new_054_rank', 'alpha_popbo_new_059_wf', 'alpha_popbo_new_065_wf'
+            'alpha_popbo_new_054_rank', 'alpha_popbo_new_059_wf', 'alpha_popbo_new_065_wf', 'alpha_popbo_new_120_rank', 'alpha_popbo_new_124_rank',
+            'alpha_popbo_new_163_tanh', 'alpha_popbo_new_178_rank', 'alpha_popbo_new_191_wf'
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
