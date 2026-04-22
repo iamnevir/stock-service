@@ -11228,6 +11228,106 @@ class Alphas:
         normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
         return -normalized.fillna(0)
 
+    @staticmethod
+    def alpha_factor_miner_new_001_rank(df, window=20, factor=20):
+        factor=int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        vwap_std = vwap.rolling(window).std()
+        raw = -(df['close'] - vwap) / vwap_std.replace(0, np.nan)
+        raw = raw.ffill()
+        normalized = (raw.rolling(factor).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_new_001_tanh(df, window=20, factor=90):
+        factor=int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        vwap_std = vwap.rolling(window).std()
+        raw = -(df['close'] - vwap) / vwap_std.replace(0, np.nan)
+        raw = raw.ffill()
+        rolling_std = raw.rolling(factor).std().replace(0, np.nan)
+        normalized = np.tanh(raw / rolling_std)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_new_001_zscore(df, window=20, factor=30):
+        factor=int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        vwap_std = vwap.rolling(window).std()
+        raw = -(df['close'] - vwap) / vwap_std.replace(0, np.nan)
+        raw = raw.ffill()
+        rolling_mean = raw.rolling(factor).mean()
+        rolling_std = raw.rolling(factor).std().replace(0, np.nan)
+        zscore = (raw - rolling_mean) / rolling_std
+        normalized = zscore.clip(-1, 1)
+        return -normalized.fillna(0)
+
+    
+
+    @staticmethod
+    def alpha_factor_miner_new_001_wf(df, window=20, factor=30):
+        factor = int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        vwap_std = vwap.rolling(window).std()
+        raw = -(df['close'] - vwap) / vwap_std.replace(0, np.nan)
+        raw = raw.ffill()
+        p1 = 0.05
+        low = raw.rolling(factor).quantile(p1)
+        high = raw.rolling(factor).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_new_076_wf(df, window=100, factor=30):
+        factor = int(factor)
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        raw = (close - low) / (high - low + 1e-9)
+        days = pd.Series(np.arange(len(df)), index=df.index)
+        slope = raw.rolling(window).cov(days) / days.rolling(window).var().replace(0, np.nan)
+        intercept = raw.rolling(window).mean() - slope * days.rolling(window).mean()
+        resid = raw - (slope * days + intercept)
+        signal = -resid
+        p1 = 0.05
+        p2 = factor
+        low_win = signal.rolling(p2).quantile(p1)
+        high_win = signal.rolling(p2).quantile(1 - p1)
+        winsorized = signal.clip(lower=low_win, upper=high_win, axis=0)
+        normalized = np.arctanh(((winsorized - low_win) / (high_win - low_win + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_new_076_tanh(df, window=70, factor=20):
+        factor=int(factor)
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        raw = (close - low) / (high - low + 1e-9)
+        days = pd.Series(np.arange(len(df)), index=df.index)
+        slope = raw.rolling(window).cov(days) / days.rolling(window).var().replace(0, np.nan)
+        intercept = raw.rolling(window).mean() - slope * days.rolling(window).mean()
+        resid = raw - (slope * days + intercept)
+        signal = -resid
+        normalized = np.tanh(signal / signal.rolling(factor).std())
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_factor_miner_new_076_zscore(df, window=90, factor=20):
+        factor=int(factor)
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        raw = (close - low) / (high - low + 1e-9)
+        days = pd.Series(np.arange(len(df)), index=df.index)
+        slope = raw.rolling(window).cov(days) / days.rolling(window).var().replace(0, np.nan)
+        intercept = raw.rolling(window).mean() - slope * days.rolling(window).mean()
+        resid = raw - (slope * days + intercept)
+        signal = -resid
+        normalized = ((signal - signal.rolling(factor).mean()) / signal.rolling(factor).std()).clip(-1, 1)
+        return -normalized.fillna(0)
+
 
 class Domains:
     @staticmethod
@@ -11269,7 +11369,10 @@ class Domains:
             'alpha_popbo_new_003_tanh', 'alpha_popbo_new_007_wf', 'alpha_popbo_new_011_tanh', 'alpha_popbo_new_013_zscore', 'alpha_popbo_new_014_zscore',
             'alpha_popbo_new_017_tanh', 'alpha_popbo_new_031_tanh', 'alpha_popbo_new_034_zscore', 'alpha_popbo_new_047_sign', 'alpha_popbo_new_048_wf',
             'alpha_popbo_new_054_rank', 'alpha_popbo_new_059_wf', 'alpha_popbo_new_065_wf', 'alpha_popbo_new_120_rank', 'alpha_popbo_new_124_rank',
-            'alpha_popbo_new_163_tanh', 'alpha_popbo_new_178_rank', 'alpha_popbo_new_191_wf'
+            'alpha_popbo_new_163_tanh', 'alpha_popbo_new_178_rank', 'alpha_popbo_new_191_wf',
+
+            'alpha_factor_miner_new_001_rank', 'alpha_factor_miner_new_001_tanh', 'alpha_factor_miner_new_001_zscore', 'alpha_factor_miner_new_001_wf',
+            'alpha_factor_miner_new_076_tanh', 'alpha_factor_miner_new_076_zscore', 'alpha_factor_miner_new_076_wf'
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
