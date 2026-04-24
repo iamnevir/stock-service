@@ -11368,6 +11368,84 @@ class Alphas:
         normalized = normalized.fillna(0)
         return normalized
 
+    @staticmethod
+    def alpha_quanta_001_rank(df, window=20, factor=0.1):
+        factor = float(factor)
+        # Raw calculation
+        price_term = (df['high'] - df['open']) / df['open'] - (df['open'] - df['low']) / df['open']
+        volume_series = df.get('matchingVolume', df.get('volume', 1))
+        volume_percentile = volume_series.rolling(window).quantile(factor)
+        sign_term = np.sign(volume_series - volume_percentile)
+        raw = price_term * sign_term
+        # Normalization: Rolling Rank (Case A) - removes noise, uniform distribution
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_001_tanh(df, window=20, factor=0.1):
+        factor = float(factor)
+        # Raw calculation
+        price_term = (df['high'] - df['open']) / df['open'] - (df['open'] - df['low']) / df['open']
+        volume_series = df.get('matchingVolume', df.get('volume', 1))
+        volume_percentile = volume_series.rolling(window).quantile(factor)
+        sign_term = np.sign(volume_series - volume_percentile)
+        raw = price_term * sign_term
+        # Normalization: Dynamic Tanh (Case B) - preserves magnitude
+        std = raw.rolling(window).std()
+        normalized = np.tanh(raw / (std + 1e-9))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_001_wf(df, window=10, factor=0.1):
+        factor = float(factor)
+        # Raw calculation
+        price_term = (df['high'] - df['open']) / df['open'] - (df['open'] - df['low']) / df['open']
+        volume_series = df.get('matchingVolume', df.get('volume', 1))
+        volume_percentile = volume_series.rolling(window).quantile(factor)
+        sign_term = np.sign(volume_series - volume_percentile)
+        raw = price_term * sign_term
+        # Normalization: Winsorized Fisher (Case E) - heavy tails, preserve distribution
+        p1 = 0.05  # Hardcoded winsorization percentile
+        p2 = 60    # Hardcoded rolling window for quantile
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(low, high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_004_tanh(df, window=70, factor=1):
+        factor=int(factor)
+        # Logic gốc: (volume / max_volume_25) * ((high - open)/open - (open - low)/open)
+        # Chuẩn hóa B: Dynamic Tanh để giữ lại cường độ (magnitude).
+        # Xử lý volume: Công thức gốc dùng volume tuyệt đối, áp dụng log1p để giảm skew.
+        volume = np.log1p(df.get('matchingVolume', df.get('volume', 1)))
+        max_vol = volume.rolling(window).max()
+        volume_ratio = volume / (max_vol + 1e-8)
+        price_term = (df['high'] - df['open']) / df['open'] - (df['open'] - df['low']) / df['open']
+        raw = volume_ratio * price_term
+        # Chuẩn hóa B: Dynamic Tanh
+        std = raw.rolling(window).std()
+        normalized = np.tanh(raw / (std + 1e-8))
+        return normalized.fillna(0).clip(-1, 1) * factor
+
+    @staticmethod
+    def alpha_quanta_004_zscore(df, window=70, factor=1):
+        factor =  int(factor)
+        # Logic gốc: (volume / max_volume_25) * ((high - open)/open - (open - low)/open)
+        # Chuẩn hóa C: Rolling Z-Score/Clip cho các công thức Spread/Oscillator.
+        # Xử lý volume: Công thức gốc dùng volume tuyệt đối, áp dụng log1p để giảm skew.
+        volume = np.log1p(df.get('matchingVolume', df.get('volume', 1)))
+        max_vol = volume.rolling(window).max()
+        volume_ratio = volume / (max_vol + 1e-8)
+        price_term = (df['high'] - df['open']) / df['open'] - (df['open'] - df['low']) / df['open']
+        raw = volume_ratio * price_term
+        # Chuẩn hóa C: Rolling Z-Score với clip
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std()
+        normalized = ((raw - mean) / (std + 1e-8)).clip(-1, 1)
+        return normalized.fillna(0) * factor
+
 
 class Domains:
     @staticmethod
@@ -11412,7 +11490,10 @@ class Domains:
             'alpha_popbo_new_163_tanh', 'alpha_popbo_new_178_rank', 'alpha_popbo_new_191_wf',
 
             'alpha_factor_miner_new_001_rank', 'alpha_factor_miner_new_001_tanh', 'alpha_factor_miner_new_001_zscore', 'alpha_factor_miner_new_001_wf',
-            'alpha_factor_miner_new_076_tanh', 'alpha_factor_miner_new_076_zscore', 'alpha_factor_miner_new_076_wf', 'alpha_factor_miner_new_213_tanh'
+            'alpha_factor_miner_new_076_tanh', 'alpha_factor_miner_new_076_zscore', 'alpha_factor_miner_new_076_wf', 'alpha_factor_miner_new_213_tanh',
+
+
+            'alpha_quanta_001_rank', 'alpha_quanta_001_tanh', 'alpha_quanta_001_wf', 'alpha_quanta_004_tanh', 'alpha_quanta_004_zscore'
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
