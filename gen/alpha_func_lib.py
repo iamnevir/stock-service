@@ -11851,6 +11851,110 @@ class Alphas:
         signal = signal.ffill().fillna(0)
         return signal
 
+    @staticmethod
+    def alpha_quanta_483_rank(df, window=15):
+        close = df['close']
+        open_ = df['open']
+        ret = close.pct_change()
+        # Tính toán raw signal
+        numerator = close - open_
+        abs_diff = (close - open_).abs()
+        denominator = abs_diff.rolling(window).mean() + 1e-8
+        raw = numerator / denominator * ret.rolling(window).std()
+        # Chuẩn hóa theo trường hợp C (Rolling Z-Score/Clip) – phù hợp với tính chất spread/oscillator
+        mean_ = raw.rolling(window).mean()
+        std_ = raw.rolling(window).std().replace(0, np.nan)
+        result = ((raw - mean_) / std_).clip(-1, 1)
+        return result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_483_sign(df, window=10):
+        raw_return = df['close'].pct_change()
+        close_open_diff = df['close'] - df['open']
+        mean_abs_diff = close_open_diff.abs().rolling(window=window).mean()
+        raw = close_open_diff / (mean_abs_diff + 1e-8) * raw_return.rolling(window=window).std()
+        normalized = ((raw - raw.rolling(window=window).mean()) / raw.rolling(window=window).std()).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_483_tanh(df, window=10):
+        raw_return = df['close'].pct_change()
+        close_open_diff = df['close'] - df['open']
+        mean_abs_diff = close_open_diff.abs().rolling(window=window).mean()
+        raw = close_open_diff / (mean_abs_diff + 1e-8) * raw_return.rolling(window=window).std()
+        normalized = np.tanh(raw / (raw.rolling(window=window).std() + 1e-9))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_483_wf(df, window=30):
+        raw_return = df['close'].pct_change()
+        close_open_diff = df['close'] - df['open']
+        mean_abs_diff = close_open_diff.abs().rolling(window=window).mean()
+        raw = close_open_diff / (mean_abs_diff + 1e-8) * raw_return.rolling(window=window).std()
+        p2 = window
+        p1 = 0.05
+        low = raw.rolling(window=p2).quantile(p1)
+        high = raw.rolling(window=p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_491_rank(df, window=20):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        delta_close = close.diff(1)
+        delta_volume = volume.diff(1)
+        ts_mean_dc = delta_close.rolling(window).mean()
+        ts_corr_dcv = delta_close.rolling(window).corr(delta_volume)
+        raw = delta_close - ts_mean_dc * ts_corr_dcv
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_491_tanh(df, window=30):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        delta_close = close.diff(1)
+        delta_volume = volume.diff(1)
+        ts_mean_dc = delta_close.rolling(window).mean()
+        ts_corr_dcv = delta_close.rolling(window).corr(delta_volume)
+        raw = delta_close - ts_mean_dc * ts_corr_dcv
+        normalized = np.tanh(raw / (raw.rolling(window).std() + 1e-9))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_491_zscore(df, window=25):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        delta_close = close.diff(1)
+        delta_volume = volume.diff(1)
+        ts_mean_dc = delta_close.rolling(window).mean()
+        ts_corr_dcv = delta_close.rolling(window).corr(delta_volume)
+        raw = delta_close - ts_mean_dc * ts_corr_dcv
+        normalized = ((raw - raw.rolling(window).mean()) / (raw.rolling(window).std() + 1e-9)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_515_wf(df, window=70, factor=1):
+        factor=int(factor)
+        # Quy trình: Tính return, Rolling Mean Spread, Normalize Winsorized Fisher (E) cho đuôi nặng
+        ret = df['close'].pct_change()
+        mean_short = ret.rolling(factor).mean()
+        mean_long = ret.rolling(window).mean()
+        raw_signal = mean_short - mean_long
+        # Chuẩn hóa Winsorized Fisher (E) - xử lý heavy tails
+        p1_quantile = 0.1  # hardcode param phụ
+        p2_rolling = window   # dùng window chính làm rolling period cho winsor
+        low = raw_signal.rolling(p2_rolling).quantile(p1_quantile)
+        high = raw_signal.rolling(p2_rolling).quantile(1 - p1_quantile)
+        winsorized = raw_signal.clip(lower=low, upper=high, axis=0)
+        numerator = (winsorized - low) / (high - low + 1e-9)
+        clamped = numerator * 1.98 - 0.99
+        signal = np.arctanh(clamped)
+        signal = signal.ffill().fillna(0)
+        return signal
+
 class Domains:
     @staticmethod
     def compute_vwap(df, window=200):
@@ -11902,7 +12006,8 @@ class Domains:
             'alpha_quanta_331_zscore', 'alpha_quanta_336_rank', 'alpha_quanta_336_sign', 'alpha_quanta_336_wf', 'alpha_quanta_336_zscore', 'alpha_quanta_340_wf',
             'alpha_quanta_346_tanh', 'alpha_quanta_346_wf', 'alpha_quanta_346_zscore', 'alpha_quanta_361_rank', 'alpha_quanta_361_tanh', 'alpha_quanta_361_zscore',
             'alpha_quanta_372_rank', 'alpha_quanta_372_sign', 'alpha_quanta_372_tanh', 'alpha_quanta_372_wf', 'alpha_quanta_372_zscore', 'alpha_quanta_408_rank',
-            'alpha_quanta_408_tanh', 'alpha_quanta_408_zscore', 'alpha_quanta_412_rank', 'alpha_quanta_448_wf', 'alpha_quanta_452_rank', 'alpha_quanta_452_sign', 'alpha_quanta_452_tanh'
+            'alpha_quanta_408_tanh', 'alpha_quanta_408_zscore', 'alpha_quanta_412_rank', 'alpha_quanta_448_wf', 'alpha_quanta_452_rank', 'alpha_quanta_452_sign', 'alpha_quanta_452_tanh',
+            'alpha_quanta_483_rank', 'alpha_quanta_483_sign', 'alpha_quanta_483_wf', 'alpha_quanta_491_rank', 'alpha_quanta_491_tanh', 'alpha_quanta_491_zscore','alpha_quanta_515_wf'
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
