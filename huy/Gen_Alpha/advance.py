@@ -466,50 +466,41 @@ def find_best_combo(results, alpha_code):
 
 #     example_code = """
 #     @staticmethod
-#     def alpha_factor_miner_new_203_rank(df, window=43):
-#         # 1. Khởi tạo dữ liệu cơ bản
-#         # Tính toán giá trị giao dịch (Amount) và Khối lượng (Volume)
-#         amount = df.get('amount', df['close'] * df.get('matchingVolume', 1))
-#         volume = df.get('matchingVolume', df.get('volume', 1))
+#     def alpha_quanta_069_zscore(df, window=10, sub_window=1):
+#         # 1. Tính toán các tỷ lệ cơ bản (Intraday & Volume)
+#         intra_ratio = (df['close'] - df['low']) / (df['high'] - df['low'] + 1e-8)
+#         vol_avg = df['matchingVolume'].rolling(sub_window).mean()
+#         vol_ratio = df['matchingVolume'] / (vol_avg + 1e-8)
         
-#         # 2. Tìm vị trí (Index) mà tại đó Amount đạt giá trị cao nhất trong cửa sổ quan sát
-#         # Trả về giá trị từ 0 đến (window - 1)
-#         idx_max = amount.rolling(window).apply(
-#             lambda x: np.nanargmax(x) if not np.isnan(x).all() else np.nan, 
-#             raw=True
+#         # 2. Xử lý nhiễu (Clipping) và tạo tín hiệu thô
+#         raw = intra_ratio * vol_ratio
+#         raw_clipped = raw.clip(
+#             lower=raw.quantile(0.01), 
+#             upper=raw.quantile(0.99)
 #         )
+#         signal_raw = raw_clipped.rank(pct=True) - 0.5
         
-#         # 3. Định nghĩa hàm tính phần dư hồi quy tuyến tính (Linear Regression Residual)
-#         # Mục tiêu: Tìm phần biến động của Volume không giải thích được bằng xu hướng thời gian
-#         t = np.arange(window)
-#         t_mean = t.mean()
-#         var_t = ((t - t_mean) ** 2).mean()
-
-#         def linreg_resid(arr):
-#             if np.isnan(arr).any():
-#                 return np.nan
-#             arr_mean = arr.mean()
-#             # Tính Slope (Hệ số góc) và Intercept (Hệ số chặn)
-#             cov = ((t - t_mean) * (arr - arr_mean)).mean()
-#             slope = cov / var_t
-#             intercept = arr_mean - slope * t_mean
-#             # Dự báo giá trị cuối cùng dựa trên xu hướng
-#             pred = intercept + slope * (window - 1)
-#             # Trả về phần dư (Giá trị thực tế - Giá trị dự báo)
-#             return arr[-1] - pred
-
-#         # 4. Tính toán phần dư cho Volume
-#         resid_volume = volume.rolling(window).apply(linreg_resid, raw=True)
+#         # 3. Tính toán Regime Weight (ATR & Volume Z-Score)
+#         atr_ratio = (df['high'] - df['low']) / df['close']
         
-#         # 5. Tính toán tương quan (Correlation) giữa vị trí đỉnh Amount và phần dư Volume
-#         corr = idx_max.rolling(window).corr(resid_volume)
-#         raw = -corr
+#         vol_mean = df['matchingVolume'].rolling(window).mean()
+#         vol_std = df['matchingVolume'].rolling(window).std().replace(0, np.nan)
+#         volume_zscore = (df['matchingVolume'] - vol_mean) / vol_std
         
-#         # 6. Chuẩn hóa Rank về khoảng [-1, 1]
-#         normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
-#         normalized = normalized.ffill().fillna(0)
+#         regime_weight = (
+#             atr_ratio.rank(pct=True) * (volume_zscore.clip(0, 2) / 2)
+#         ).clip(0, 1)
         
-#         return normalized.clip(-1, 1)
+#         # 4. Kết hợp và chuẩn hóa tín hiệu (Z-Score & Clip)
+#         signal = signal_raw * regime_weight
+        
+#         sig_mean = signal.rolling(21).mean()
+#         sig_std = signal.rolling(21).std().replace(0, np.nan)
+        
+#         signal = (signal - sig_mean) / sig_std
+#         signal = signal.clip(-1, 1)
+        
+#         return signal.fillna(0)
 #     """
 #     results, _ = run_advance_scan(example_code)
     

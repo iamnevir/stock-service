@@ -298,6 +298,22 @@ def loop_monitor(shared_state):
             done = alpha_coll.count_documents({**query, "scan": 1, "is_error": 0})
             error = alpha_coll.count_documents({**query, "is_error": 1})
             timeout = alpha_coll.count_documents({**query, "is_error": 2})
+            sharp_pass = alpha_coll.count_documents({**query, "run_all": {"$exists": True, "$ne": None} })
+            scan_full_running = alpha_coll.count_documents({**query, "run_all": 2})
+            scan_full_pass = alpha_coll.count_documents({
+                **query,
+                "run_all": 3,
+                "$and": [
+                    {"statistics_strategy.profit": {"$gte": 80}},
+                    {"statistics_strategy.sharpe": {"$gte": 70}},
+                    {"statistics_strategy.levels_mdd20.net_100.percentage": {"$gte": 8}},
+                    {"statistics_strategy.levels_mdd20.net_150.percentage": {"$gte": 8}},
+                    {"statistics_strategy.levels_mdd20.net_210.percentage": {"$gte": 8}},
+                    {"statistics_strategy.levels_mdd20.net_300.percentage": {"$gte": 8}},
+                    {"statistics_strategy.levels_mdd20.net_450.percentage": {"$gte": 8}},
+                    {"statistics_strategy.levels_mdd20.net_600.percentage": {"$gte": 8}},
+                ]
+            }) 
 
             now_str = datetime.now().strftime("%H:%M:%S")
             print("\n" + "="*60)
@@ -306,7 +322,7 @@ def loop_monitor(shared_state):
             print(f"  [2] TÍNH IC   :  {shared_state.get('ic', 'N/A')}")
             print(f"  [3] QUÉT SHARP:  {shared_state.get('scan', 'N/A')}")
             print("-" * 30)
-            print(f"  TỔNG: {total} | ĐỢI IC: {pending_ic} | ĐỢI SCAN: {pending_scan} | XONG: {done} | LỖI: {error} | TIMEOUT: {timeout}")
+            print(f"  TỔNG: {total} | ĐỢI IC: {pending_ic} | ĐỢI SCAN: {pending_scan} | XONG: {done} | LỖI: {error} | TIMEOUT: {timeout} | SHARP PASS: {sharp_pass} | SCAN FULL RUNNING: {scan_full_running} | SCAN FULL PASS: {scan_full_pass}")
             print("="*60 + "\n")
             
             time.sleep(15)
