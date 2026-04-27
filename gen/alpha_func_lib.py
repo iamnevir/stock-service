@@ -11955,6 +11955,173 @@ class Alphas:
         signal = signal.ffill().fillna(0)
         return signal
 
+    @staticmethod
+    def alpha_quanta_372_rank_v2(df, window=5):
+        # 1. Tính toán chênh lệch giá (Body của nến)
+        close_open = df['close'] - df['open']
+        open_close = df['open'] - df['close']
+        
+        # 2. Tạo các mảng giá trị chỉ giữ lại phần Gain hoặc Loss
+        # Thay vì .astype(int), ta nhân trực tiếp để giữ logic rõ ràng
+        gain_values = close_open.where(close_open > 0, 0.0)
+        loss_values = open_close.where(close_open < 0, 0.0)
+        
+        # 3. Tính Tổng trượt (Rolling Sum) bằng Pandas - AN TOÀN TUYỆT ĐỐI
+        # Thay thế np.convolve(mode='same') bị lỗi nhìn trước tương lai
+        sum_gain = gain_values.rolling(window=window, min_periods=window).sum()
+        sum_loss = loss_values.rolling(window=window, min_periods=window).sum()
+        
+        # 4. Chuẩn hóa bằng biên độ dao động trung bình (Mean High-Low)
+        h_l = df['high'] - df['low']
+        mean_h_l = h_l.rolling(window=window, min_periods=window).mean() + 1e-8
+        
+        # 5. Tính tín hiệu thô (Raw Alpha)
+        raw = (sum_gain - sum_loss) / mean_h_l
+        
+        # 6. Chuẩn hóa Rolling Rank (xử lý nhiễu)
+        # Cửa sổ rank là window * 2, chỉ nhìn về quá khứ
+        normalized = (raw.rolling(window=window*2, min_periods=1).rank(pct=True) * 2) - 1
+        
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_372_sign_v2(df, window=5):
+        # 1. Tính toán thân nến
+        close_open = df['close'] - df['open']
+        open_close = df['open'] - df['close']
+        
+        # 2. Bộ lọc tăng/giảm
+        cond_gain = (close_open > 0).astype(float)
+        cond_loss = (close_open < 0).astype(float)
+        
+        # 3. Tính tổng trượt (Rolling Sum) - CHỈ NHÌN VỀ QUÁ KHỨ
+        # Min_periods=window đảm bảo không tính toán khi chưa đủ dữ liệu đầu kỳ
+        sum_gain = (cond_gain * close_open).rolling(window=window).sum()
+        sum_loss = (cond_loss * open_close).rolling(window=window).sum()
+        
+        # 4. Chuẩn hóa bằng biến động trung bình (Rolling Mean)
+        h_l = df['high'] - df['low']
+        mean_h_l = h_l.rolling(window=window).mean() + 1e-8
+        
+        # 5. Tính toán Raw và Normalized
+        raw = (sum_gain - sum_loss) / mean_h_l
+        normalized = np.sign(raw)
+        
+        return pd.Series(normalized, index=df.index).fillna(0)    
+
+    @staticmethod
+    def alpha_quanta_372_tanh_v2(df, window=5):
+        # 1. Tính toán Body nến
+        close_open = df['close'] - df['open']
+        open_close = df['open'] - df['close']
+        
+        # 2. Lọc giá trị Gain/Loss
+        gain_values = close_open.where(close_open > 0, 0.0)
+        loss_values = open_close.where(close_open < 0, 0.0)
+        
+        # 3. Tính Tổng trượt (Rolling Sum) - Thay cho np.convolve (mode='same')
+        # Dùng window=5 theo tham số đầu vào
+        sum_gain = gain_values.rolling(window=window, min_periods=window).sum()
+        sum_loss = loss_values.rolling(window=window, min_periods=window).sum()
+        
+        # 4. Chuẩn hóa theo biến động High-Low trung bình
+        h_l = df['high'] - df['low']
+        mean_h_l = h_l.rolling(window=window, min_periods=window).mean() + 1e-8
+        
+        # 5. Tính Raw Alpha
+        raw = (sum_gain - sum_loss) / mean_h_l
+        
+        # 6. Dynamic Tanh (Giữ cường độ nhưng nén trong khoảng -1 đến 1)
+        # std đo lường độ lệch chuẩn của chính tín hiệu raw để "re-scale"
+        std = raw.rolling(window=window * 2, min_periods=2).std().fillna(1e-8)
+        
+        # Hàm tanh giúp các giá trị cực trị không bị "vọt" quá xa
+        normalized = np.tanh(raw / std)
+        
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_372_wf_v2(df, window=1, factor=50):
+        factor = int(factor)
+        
+        # 1. Tính Body nến
+        close_open = df['close'] - df['open']
+        open_close = df['open'] - df['close']
+        
+        # 2. Lọc Gain/Loss
+        gain_values = close_open.where(close_open > 0, 0.0)
+        loss_values = open_close.where(close_open < 0, 0.0)
+        
+        # 3. Tính Tổng trượt (Rolling Sum) - KHÔNG DÙNG np.convolve(mode='same')
+        sum_gain = gain_values.rolling(window=window, min_periods=window).sum()
+        sum_loss = loss_values.rolling(window=window, min_periods=window).sum()
+        
+        # 4. Chuẩn hóa theo biến động High-Low trung bình
+        h_l = df['high'] - df['low']
+        mean_h_l = h_l.rolling(window=window, min_periods=window).mean() + 1e-8
+        
+        # 5. Tín hiệu thô (Raw Alpha)
+        raw = (sum_gain - sum_loss) / mean_h_l
+        
+        # 6. Winsorized: Giới hạn các giá trị ngoại lai (outliers) 
+        # Dựa trên quantile 10% và 90% của chính nó trong quá khứ (factor=60)
+        low_bound = raw.rolling(window=factor, min_periods=window).quantile(0.1)
+        high_bound = raw.rolling(window=factor, min_periods=window).quantile(0.9)
+        
+        # Kẹp giá trị raw vào trong khoảng [low_bound, high_bound]
+        winsorized = raw.clip(lower=low_bound, upper=high_bound)
+        
+        # 7. Fisher Transform
+        # Mục đích: Chuyển đổi phân phối bất kỳ về phân phối gần giống chuẩn (Gaussian)
+        # giúp nhận diện các điểm đảo chiều cực đại.
+        epsilon = 1e-9
+        denominator = (high_bound - low_bound + epsilon)
+        
+        # Đưa giá trị về khoảng (-0.99, 0.99) trước khi dùng arctanh
+        value_to_transform = ((winsorized - low_bound) / denominator) * 1.98 - 0.99
+        
+        # arctanh chính là hàm Fisher Transform
+        normalized = np.arctanh(value_to_transform)
+        
+        return normalized.fillna(0)
+
+
+    @staticmethod
+    def alpha_quanta_372_zscore_v2(df, window=10):
+        # 1. Tính toán Body nến (Lực mua/bán thực tế)
+        close_open = df['close'] - df['open']
+        open_close = df['open'] - df['close']
+        
+        # 2. Lọc giá trị Gain/Loss
+        gain_values = close_open.where(close_open > 0, 0.0)
+        loss_values = open_close.where(close_open < 0, 0.0)
+        
+        # 3. Tính Tổng trượt (Rolling Sum) - Thay thế np.convolve(mode='same')
+        # window=5: Đo lường tổng lực trong một tuần giao dịch ngắn
+        sum_gain = gain_values.rolling(window=window, min_periods=window).sum()
+        sum_loss = loss_values.rolling(window=window, min_periods=window).sum()
+        
+        # 4. Chuẩn hóa theo biên độ dao động High-Low trung bình
+        h_l = df['high'] - df['low']
+        mean_h_l = h_l.rolling(window=window, min_periods=window).mean() + 1e-8
+        
+        # 5. Tính Raw Alpha
+        raw = (sum_gain - sum_loss) / mean_h_l
+        
+        # 6. Tính Rolling Z-Score
+        # Mục đích: Đo lường xem 'raw' hiện tại cách xa trung bình bao nhiêu độ lệch chuẩn (std)
+        mean_raw = raw.rolling(window=window * 2, min_periods=window * 2).mean()
+        std_raw = raw.rolling(window=window * 2, min_periods=window * 2).std() + 1e-8
+        
+        # Công thức Z-Score: (x - mean) / std
+        zscore = (raw - mean_raw) / std_raw
+        
+        # 7. Clip kết quả về khoảng [-1, 1]
+        # Điều này biến Z-Score thành một Oscillator giới hạn biên độ
+        normalized = zscore.clip(-1, 1)
+        
+        return normalized.fillna(0)
+
 class Domains:
     @staticmethod
     def compute_vwap(df, window=200):
@@ -12007,7 +12174,9 @@ class Domains:
             'alpha_quanta_346_tanh', 'alpha_quanta_346_wf', 'alpha_quanta_346_zscore', 'alpha_quanta_361_rank', 'alpha_quanta_361_tanh', 'alpha_quanta_361_zscore',
             'alpha_quanta_372_rank', 'alpha_quanta_372_sign', 'alpha_quanta_372_tanh', 'alpha_quanta_372_wf', 'alpha_quanta_372_zscore', 'alpha_quanta_408_rank',
             'alpha_quanta_408_tanh', 'alpha_quanta_408_zscore', 'alpha_quanta_412_rank', 'alpha_quanta_448_wf', 'alpha_quanta_452_rank', 'alpha_quanta_452_sign', 'alpha_quanta_452_tanh',
-            'alpha_quanta_483_rank', 'alpha_quanta_483_sign', 'alpha_quanta_483_wf', 'alpha_quanta_491_rank', 'alpha_quanta_491_tanh', 'alpha_quanta_491_zscore','alpha_quanta_515_wf'
+            'alpha_quanta_483_rank', 'alpha_quanta_483_sign', 'alpha_quanta_483_wf', 'alpha_quanta_491_rank', 'alpha_quanta_491_tanh', 'alpha_quanta_491_zscore','alpha_quanta_515_wf',
+            'alpha_quanta_372_rank_v2',  'alpha_quanta_372_sign_v2', 'alpha_quanta_372_tanh_v2',
+            'alpha_quanta_372_wf_v2', 'alpha_quanta_372_zscore_v2',
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]
