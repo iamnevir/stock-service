@@ -26,6 +26,7 @@ Chạy:
     python -m busd_dynamic.export_xlsx
     python -m busd_dynamic.export_xlsx --out /tmp/result.xlsx
     python -m busd_dynamic.export_xlsx --src hose500 --mode ema
+    python -m busd_dynamic.export_xlsx --reported-only
 """
 
 import argparse
@@ -306,8 +307,8 @@ def main():
     parser.add_argument("--src",  type=str, default=None, help="Filter theo src, vd: hose500")
     parser.add_argument("--mode", type=str, default=None, help="Filter theo mode, vd: ema")
     parser.add_argument(
-        "--all", action="store_true",
-        help="Export cả những dòng chưa có play_report (để review)"
+        "--reported-only", action="store_true",
+        help="Chỉ export những dòng đã có play_report"
     )
     args = parser.parse_args()
 
@@ -322,7 +323,8 @@ def main():
         src_filter=args.src,
         mode_filter=args.mode,
         week_filter=args.week,
-        require_report=not args.all,
+        # Mặc định export cả dòng chưa có play_report (vd tuần cuối không có next_week).
+        require_report=args.reported_only,
     )
 
     mongo_client.close()

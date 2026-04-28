@@ -136,8 +136,8 @@ def process_doc_src(
     play_strategy: List[str] = src_item.get("play_strategy", [])
 
     # Validate
-    if not week or not next_week or not src or not mode:
-        print(f"[backtest] skip {week} {src} {mode}: thiếu thông tin week/next_week/src/mode")
+    if not week or not src or not mode:
+        print(f"[backtest] skip {week} {src} {mode}: thiếu thông tin week/src/mode")
         return
 
     if not play_strategy:
@@ -146,6 +146,11 @@ def process_doc_src(
 
     if src_item.get("play_report") and not force:
         print(f"[backtest] skip {week} {src} {mode}: đã có play_report (dùng --force để rebuild)")
+        return
+
+    # Không có next_week thì vẫn giữ luồng xử lý tổng thể, nhưng bỏ qua backtest/report.
+    if not next_week:
+        print(f"[backtest] {week} {src} {mode}: không có next_week, bỏ qua chạy backtest/play_report")
         return
 
     # Lấy lst_day của next_week
