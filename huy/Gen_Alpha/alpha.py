@@ -18977,3 +18977,97 @@ class Alpha:
         raw = norm_range * cl_position
         signal = np.sign(raw)
         return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_282_r(df, window=70, winsor_percentile=0.1):
+        hl_range = df['high'] - df['low']
+        mean_hl_range = hl_range.rolling(window).mean()
+        norm_range = hl_range / (mean_hl_range + 1e-8)
+        cl_position = (df['close'] - df['low']) / (df['high'] - df['low'] + 1e-8)
+        raw = norm_range * cl_position
+        low = raw.rolling(window).quantile(winsor_percentile)
+        high = raw.rolling(window).quantile(1 - winsor_percentile)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_283_rank(df, window=30):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        std_short = ret.rolling(window).std()
+        std_long = ret.rolling(60).std() + 1e-12
+        raw = std_short / std_long
+        neg_count = (ret < 0).rolling(20).sum() / 20
+        raw = raw * neg_count
+        norm = (raw.rolling(252).rank(pct=True) * 2) - 1
+        return -norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_283_tanh(df, window=5):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        std_short = ret.rolling(window).std()
+        std_long = ret.rolling(60).std() + 1e-12
+        raw = std_short / std_long
+        neg_count = (ret < 0).rolling(20).sum() / 20
+        raw = raw * neg_count
+        norm = np.tanh(raw / raw.rolling(20).std())
+        return -norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_283_zscore(df, window=30):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        std_short = ret.rolling(window).std()
+        std_long = ret.rolling(60).std() + 1e-12
+        raw = std_short / std_long
+        neg_count = (ret < 0).rolling(20).sum() / 20
+        raw = raw * neg_count
+        ma = raw.rolling(20).mean()
+        std = raw.rolling(20).std()
+        norm = ((raw - ma) / std).clip(-1, 1)
+        return -norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_283_sign(df, window=55):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        std_short = ret.rolling(window).std()
+        std_long = ret.rolling(60).std() + 1e-12
+        raw = std_short / std_long
+        neg_count = (ret < 0).rolling(20).sum() / 20
+        raw = raw * neg_count
+        norm = np.sign(raw)
+        return pd.Series(norm, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_283_wf(df, window=60, p1=0.9):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        std_short = ret.rolling(window).std()
+        std_long = ret.rolling(60).std() + 1e-12
+        raw = std_short / std_long
+        neg_count = (ret < 0).rolling(20).sum() / 20
+        raw = raw * neg_count
+        p2 = 60
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        norm = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_284_rank(df, window=3, window_ratio_denom=40):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        vwap = (close * volume).rolling(window).sum() / (volume.rolling(window).sum() + 1e-12)
+        count_above = ((close > vwap).rolling(window).sum())
+        part1 = count_above / window
+        vol_mean_short = volume.rolling(window).mean()
+        vol_mean_long = volume.rolling(window_ratio_denom).mean()
+        part2 = vol_mean_short / (vol_mean_long + 1e-12)
+        raw = part1 * part2
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        normalized = normalized.ffill().fillna(0).replace([np.inf, -np.inf], 0)
+        return normalized

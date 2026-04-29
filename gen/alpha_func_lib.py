@@ -12263,9 +12263,9 @@ class Alphas:
         return -signal
 
     @staticmethod
-    def alpha_quanta_full_base_171_rank(df, window_rank=35):
+    def alpha_quanta_full_base_171_rank(df, window=35):
         raw = (df['close'] - df['close'].rolling(5).mean()) / (df['close'].rolling(5).std() + 1e-8)
-        signal = (raw.rolling(window_rank).rank(pct=True) * 2) - 1
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
         return signal.fillna(0)
 
     @staticmethod
