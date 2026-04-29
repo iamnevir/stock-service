@@ -462,56 +462,56 @@ def find_best_combo(results, alpha_code):
         'param_range': param_range
     }
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    example_code = """
-    @staticmethod
-    def alpha_quanta_372_zscore_v2(df, window=5):
-        # 1. Tính toán Body nến (Lực mua/bán thực tế)
-        close_open = df['close'] - df['open']
-        open_close = df['open'] - df['close']
+#     example_code = """
+#     @staticmethod
+#     def alpha_quanta_372_zscore_v2(df, window=5):
+#         # 1. Tính toán Body nến (Lực mua/bán thực tế)
+#         close_open = df['close'] - df['open']
+#         open_close = df['open'] - df['close']
         
-        # 2. Lọc giá trị Gain/Loss
-        gain_values = close_open.where(close_open > 0, 0.0)
-        loss_values = open_close.where(close_open < 0, 0.0)
+#         # 2. Lọc giá trị Gain/Loss
+#         gain_values = close_open.where(close_open > 0, 0.0)
+#         loss_values = open_close.where(close_open < 0, 0.0)
         
-        # 3. Tính Tổng trượt (Rolling Sum) - Thay thế np.convolve(mode='same')
-        # window=5: Đo lường tổng lực trong một tuần giao dịch ngắn
-        sum_gain = gain_values.rolling(window=window, min_periods=window).sum()
-        sum_loss = loss_values.rolling(window=window, min_periods=window).sum()
+#         # 3. Tính Tổng trượt (Rolling Sum) - Thay thế np.convolve(mode='same')
+#         # window=5: Đo lường tổng lực trong một tuần giao dịch ngắn
+#         sum_gain = gain_values.rolling(window=window, min_periods=window).sum()
+#         sum_loss = loss_values.rolling(window=window, min_periods=window).sum()
         
-        # 4. Chuẩn hóa theo biên độ dao động High-Low trung bình
-        h_l = df['high'] - df['low']
-        mean_h_l = h_l.rolling(window=window, min_periods=window).mean() + 1e-8
+#         # 4. Chuẩn hóa theo biên độ dao động High-Low trung bình
+#         h_l = df['high'] - df['low']
+#         mean_h_l = h_l.rolling(window=window, min_periods=window).mean() + 1e-8
         
-        # 5. Tính Raw Alpha
-        raw = (sum_gain - sum_loss) / mean_h_l
+#         # 5. Tính Raw Alpha
+#         raw = (sum_gain - sum_loss) / mean_h_l
         
-        # 6. Tính Rolling Z-Score
-        # Mục đích: Đo lường xem 'raw' hiện tại cách xa trung bình bao nhiêu độ lệch chuẩn (std)
-        mean_raw = raw.rolling(window=window * 2, min_periods=window * 2).mean()
-        std_raw = raw.rolling(window=window * 2, min_periods=window * 2).std() + 1e-8
+#         # 6. Tính Rolling Z-Score
+#         # Mục đích: Đo lường xem 'raw' hiện tại cách xa trung bình bao nhiêu độ lệch chuẩn (std)
+#         mean_raw = raw.rolling(window=window * 2, min_periods=window * 2).mean()
+#         std_raw = raw.rolling(window=window * 2, min_periods=window * 2).std() + 1e-8
         
-        # Công thức Z-Score: (x - mean) / std
-        zscore = (raw - mean_raw) / std_raw
+#         # Công thức Z-Score: (x - mean) / std
+#         zscore = (raw - mean_raw) / std_raw
         
-        # 7. Clip kết quả về khoảng [-1, 1]
-        # Điều này biến Z-Score thành một Oscillator giới hạn biên độ
-        normalized = zscore.clip(-1, 1)
+#         # 7. Clip kết quả về khoảng [-1, 1]
+#         # Điều này biến Z-Score thành một Oscillator giới hạn biên độ
+#         normalized = zscore.clip(-1, 1)
         
-        return normalized.fillna(0)
-    """
-    results, _ = run_advance_scan(example_code)
+#         return normalized.fillna(0)
+#     """
+#     results, _ = run_advance_scan(example_code)
     
-    res = find_best_combo(results, example_code)
-    if res:
-        print(f"\n✅ ĐÃ TÌM THẤY SIÊU COMBO!")
-        print(f"Combo: {res['combo']}")
-        print(f"Param Range: {res['param_range']}")
-        print(f"Direction: {res['direction']}")
+#     res = find_best_combo(results, example_code)
+#     if res:
+#         print(f"\n✅ ĐÃ TÌM THẤY SIÊU COMBO!")
+#         print(f"Combo: {res['combo']}")
+#         print(f"Param Range: {res['param_range']}")
+#         print(f"Direction: {res['direction']}")
         
-        print("\n--- MÃ NGUỒN ALPHA ĐÃ TỐI ƯU ---")
-        print(res['new_code'])
-        print("--------------------------------")
-    else:
-        print("\n❌ Không tìm thấy bộ tham số nào thỏa mãn.")
+#         print("\n--- MÃ NGUỒN ALPHA ĐÃ TỐI ƯU ---")
+#         print(res['new_code'])
+#         print("--------------------------------")
+#     else:
+#         print("\n❌ Không tìm thấy bộ tham số nào thỏa mãn.")

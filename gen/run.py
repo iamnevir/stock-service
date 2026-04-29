@@ -886,20 +886,20 @@ if __name__ == "__main__":
         upload_results = {}
     time_ranges = generate_time_ranges(MODE)
     alpha_list = [
-        'alpha_popbo_advance_v2_026_wf'
+        'alpha_quanta_001_rank'
     ]
     for alpha_name in alpha_list:
         alpha_params = {
             
             "window": {"start": 10, "end": 100, "step": 10 },
-            "sub_window": {"start": 1, "end": 4, "step": 1},
+            "factor": {"start": 0.1, "end": 0.7, "step": 0.2},
             
         }
 
         dic_freqs = load_dic_freqs(source)
         DIC_ALPHAS = Domains.get_list_of_alphas()
-        print(DIC_ALPHAS)
-        exit()
+        # print(DIC_ALPHAS)
+        # exit()
 
         for tr in time_ranges:
             start = tr["start"]

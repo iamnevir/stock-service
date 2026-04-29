@@ -116,7 +116,10 @@ class UTC7Formatter(logging.Formatter):
 
 def setup_logger(alpha_name):
     log_file = f"/home/ubuntu/nevir/auto/logs/{alpha_name}.log"
-
+    # Ensure log directory exists
+    log_dir = os.path.dirname(log_file)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
     logger = logging.getLogger(alpha_name)
     logger.setLevel(logging.INFO)
 

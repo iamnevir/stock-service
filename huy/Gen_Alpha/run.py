@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 
 # Khai báo các đường dẫn
-INPUT_RAW_FORMULA_ALPHA = "/home/ubuntu/nevir/huy/Gen_Alpha/quanta_full_base.json"
+INPUT_RAW_FORMULA_ALPHA = "/home/ubuntu/nevir/huy/Gen_Alpha/quanta_randomizer.json"
 PROMT = "/home/ubuntu/nevir/huy/Gen_Alpha/promt_v0.txt"
 ALPHA_PATCH = "/home/ubuntu/nevir/huy/Gen_Alpha/alpha.py"
 RUN_IC_SCRIPT = "/home/ubuntu/nevir/huy/gen1_2_factor_minor/run.py"
@@ -37,11 +37,14 @@ def chat_with_deepseek(system_promt, user_promt):
     api_key = "sk-d2920fe91a98497eadcaf6bdd63506c8"
     client_ai = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     response = client_ai.chat.completions.create(
-        model="deepseek-chat",
+        model="deepseek-v4-flash",
         messages=[
             {"role": "system", "content": system_promt},
             {"role": "user", "content": user_promt},
         ],
+        extra_body={
+            "thinking": {"type": "disabled"},
+        },
         stream=False
     )
     return response.choices[0].message.content
