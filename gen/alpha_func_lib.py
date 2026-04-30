@@ -12300,6 +12300,470 @@ class Alphas:
         signal = ((raw - rolling_mean) / rolling_std).clip(-1, 1)
         return signal.ffill().fillna(0)
 
+    @staticmethod
+    def alpha_quanta_randomizer_029_wf(df, window=3, factor=100):
+        factor=int(factor)
+        low_min = df['low'].rolling(window).min()
+        high_max = df['high'].rolling(window).max()
+        raw_ratio = (df['close'] - low_min) / (high_max - low_min + 1e-8)
+        std_close = df['close'].rolling(factor).std()
+        mean_std = std_close.rolling(factor).mean()
+        raw = raw_ratio * (std_close / (mean_std + 1e-8))
+        low_q = raw.rolling(20).quantile(0.05)
+        high_q = raw.rolling(20).quantile(1 - 0.05)
+        winsorized = raw.clip(lower=low_q, upper=high_q, axis=0)
+        normalized = np.arctanh(((winsorized - low_q) / (high_q - low_q + 1e-9)) * 1.98 - 0.99)
+        signal = normalized.ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_051_rank(df, window=50):
+        close = df['close']
+        volume = df['matchingVolume']
+        open_ = df['open']
+        raw_ratio_close = close / (close.rolling(5).mean() + 1e-8)
+        raw_ratio_volume = volume / (volume.rolling(5).mean() + 1e-8)
+        raw_candle = (close - open_) / (open_ + 1e-8)
+        raw = (raw_ratio_close - raw_ratio_close.rolling(window).mean()) / raw_ratio_close.rolling(window).std()
+        raw += (raw_ratio_volume - raw_ratio_volume.rolling(window).mean()) / raw_ratio_volume.rolling(window).std()
+        raw += (raw_candle - raw_candle.rolling(window).mean()) / raw_candle.rolling(window).std()
+        signal = raw.rolling(window).rank(pct=True) * 2 - 1
+        signal = signal.ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_051_tanh(df, window=30):
+        close = df['close']
+        volume = df['matchingVolume']
+        open_ = df['open']
+        raw_ratio_close = close / (close.rolling(5).mean() + 1e-8)
+        raw_ratio_volume = volume / (volume.rolling(5).mean() + 1e-8)
+        raw_candle = (close - open_) / (open_ + 1e-8)
+        raw = (raw_ratio_close - raw_ratio_close.rolling(window).mean()) / raw_ratio_close.rolling(window).std()
+        raw += (raw_ratio_volume - raw_ratio_volume.rolling(window).mean()) / raw_ratio_volume.rolling(window).std()
+        raw += (raw_candle - raw_candle.rolling(window).mean()) / raw_candle.rolling(window).std()
+        signal = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        signal = signal.ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_051_zscore(df, window=60):
+        close = df['close']
+        volume = df['matchingVolume']
+        open_ = df['open']
+        raw_ratio_close = close / (close.rolling(5).mean() + 1e-8)
+        raw_ratio_volume = volume / (volume.rolling(5).mean() + 1e-8)
+        raw_candle = (close - open_) / (open_ + 1e-8)
+        raw = (raw_ratio_close - raw_ratio_close.rolling(window).mean()) / raw_ratio_close.rolling(window).std()
+        raw += (raw_ratio_volume - raw_ratio_volume.rolling(window).mean()) / raw_ratio_volume.rolling(window).std()
+        raw += (raw_candle - raw_candle.rolling(window).mean()) / raw_candle.rolling(window).std()
+        signal = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        signal = signal.ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_053_rank(df, window=20):
+        close = df['close']
+        open_ = df['open']
+        raw_ret = (close - open_) / (open_ + 1e-8)
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        vol_ratio = volume / (volume.rolling(window).mean() + 1e-8)
+        raw = raw_ret * vol_ratio
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std().replace(0, np.nan)
+        zscore = (raw - mean) / std
+        normalized = zscore.rolling(window).rank(pct=True) * 2 - 1
+        result = normalized.fillna(0).clip(-1, 1)
+        return result
+
+    @staticmethod
+    def alpha_quanta_randomizer_053_tanh(df, window=10):
+        close = df['close']
+        open_ = df['open']
+        raw_ret = (close - open_) / (open_ + 1e-8)
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        vol_ratio = volume / (volume.rolling(window).mean() + 1e-8)
+        raw = raw_ret * vol_ratio
+        normalized = np.tanh(raw / (raw.rolling(window).std().replace(0, np.nan) + 1e-8))
+        result = normalized.fillna(0)
+        return result
+
+    @staticmethod
+    def alpha_quanta_randomizer_053_zscore(df, window=10):
+        close = df['close']
+        open_ = df['open']
+        raw_ret = (close - open_) / (open_ + 1e-8)
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        vol_ratio = volume / (volume.rolling(window).mean() + 1e-8)
+        raw = raw_ret * vol_ratio
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std().replace(0, np.nan)
+        zscore = (raw - mean) / std
+        normalized = zscore.clip(-1, 1)
+        result = normalized.fillna(0)
+        return result
+
+    
+    @staticmethod
+    def alpha_quanta_randomizer_069_rank(df, window=25):
+        ret = df['close'].pct_change().fillna(0)
+        mean_ret = ret.rolling(window).mean()
+        std_ret = ret.rolling(window).std().replace(0, np.nan)
+        raw = (ret - mean_ret) / (std_ret + 1e-8)
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+
+    @staticmethod
+    def alpha_quanta_randomizer_069_tanh(df, window=30):
+        ret = df['close'].pct_change().fillna(0)
+        mean_ret = ret.rolling(window).mean()
+        std_ret = ret.rolling(window).std().replace(0, np.nan)
+        raw = (ret - mean_ret) / (std_ret + 1e-8)
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_069_wf(df, window=40, factor=80):
+        factor=int(factor)
+        ret = df['close'].pct_change().fillna(0)
+        mean_ret = ret.rolling(window).mean()
+        std_ret = ret.rolling(window).std().replace(0, np.nan)
+        raw = (ret - mean_ret) / (std_ret + 1e-8)
+        p1 = 0.05
+        p2 = factor
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_069_zscore(df, window=60):
+        ret = df['close'].pct_change().fillna(0)
+        mean_ret = ret.rolling(window).mean()
+        std_ret = ret.rolling(window).std().replace(0, np.nan)
+        raw = (ret - mean_ret) / (std_ret + 1e-8)
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_161_rank(df, window=25):
+        # Tính return đơn giản
+        ret = df['close'].pct_change().fillna(0)
+        # Rolling mean và std
+        mean_ret = ret.rolling(window).mean()
+        std_ret = ret.rolling(window).std().replace(0, np.nan)
+        # Z-score raw
+        raw = (ret - mean_ret) / std_ret
+        # Chuẩn hóa Rolling Rank (A) - loại bỏ nhiễu, đưa về phân phối đều
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_161_tanh(df, window=30):
+        ret = df['close'].pct_change().fillna(0)
+        mean_ret = ret.rolling(window).mean()
+        std_ret = ret.rolling(window).std().replace(0, np.nan)
+        raw = (ret - mean_ret) / std_ret
+        # Dynamic Tanh (B) - giữ cường độ, giới hạn về [-1,1]
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return normalized.fillna(0)
+
+
+    @staticmethod
+    def alpha_quanta_randomizer_161_zscore(df, window=60):
+        ret = df['close'].pct_change().fillna(0)
+        mean_ret = ret.rolling(window).mean()
+        std_ret = ret.rolling(window).std().replace(0, np.nan)
+        raw = (ret - mean_ret) / std_ret
+        # Rolling Z-Score/Clip (C) - giữ nguyên dạng oscillator
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_167_rank(df, window=65):
+        raw = (abs(df['close'] - df['open']) / (df['high'] - df['low'] + 1e-8)) * np.sign(df['open'] - df['close'])
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std().replace(0, np.nan)
+        signal = ((raw - mean) / std).clip(-1, 1)
+        signal = signal.ffill().fillna(0)
+        return -signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_167_sign(df, window=25):
+        raw = (abs(df['close'] - df['open']) / (df['high'] - df['low'] + 1e-8)) * np.sign(df['open'] - df['close'])
+        std = raw.rolling(window).std().replace(0, np.nan)
+        signal = np.tanh(raw / std)
+        signal = signal.ffill().fillna(0)
+        return -signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_167_tanh(df, window=15):
+        raw = (abs(df['close'] - df['open']) / (df['high'] - df['low'] + 1e-8)) * np.sign(df['open'] - df['close'])
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        signal = signal.ffill().fillna(0)
+        return -signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_167_wf(df, window=15):
+        raw = (abs(df['close'] - df['open']) / (df['high'] - df['low'] + 1e-8)) * np.sign(df['open'] - df['close'])
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        signal = signal.ffill().fillna(0)
+        return -signal
+
+
+    @staticmethod
+    def alpha_quanta_randomizer_168_rank(df, window=15):
+        raw = (abs(df['close'] - df['open']) / (df['high'] - df['low'] + 1e-8)) * (df['open'] - df['close']).apply(np.sign)
+        mean_raw = raw.rolling(window).mean()
+        std_raw = raw.rolling(window).std()
+        z = ((raw - mean_raw) / (std_raw + 1e-8)).clip(-1, 1)
+        return -z.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_168_sign(df, window=15):
+        raw = (abs(df['close'] - df['open']) / (df['high'] - df['low'] + 1e-8)) * (df['open'] - df['close']).apply(np.sign)
+        mean_raw = raw.rolling(window).mean()
+        std_raw = raw.rolling(window).std()
+        z = (raw - mean_raw) / (std_raw + 1e-8)
+        normalized = np.tanh(z / z.rolling(window).std())
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_168_tanh(df, window=45):
+        raw = (abs(df['close'] - df['open']) / (df['high'] - df['low'] + 1e-8)) * (df['open'] - df['close']).apply(np.sign)
+        mean_raw = raw.rolling(window).mean()
+        std_raw = raw.rolling(window).std()
+        z = (raw - mean_raw) / (std_raw + 1e-8)
+        rank = z.rolling(window).rank(pct=True) * 2 - 1
+        return -rank.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_176_rank(df, window=15):
+        # Tính Intraday_Exhaustion_Momentum: phần trăm thay đổi của close từ open (cường độ giao dịch trong phiên)
+        intraday_momentum = (df['close'] - df['open']) / df['open'].replace(0, np.nan)
+        # Tính Sector_Relative_Volume_Dispersion: độ lệch chuẩn của volume tương đối (so với trung bình) trong 5 phiên
+        volume_ma = df['matchingVolume'].rolling(window=window).mean()
+        volume_ratio = df['matchingVolume'] / volume_ma.replace(0, np.nan)
+        volume_dispersion = volume_ratio.rolling(window=window).std()
+        # Kết hợp hai thành phần
+        raw = volume_dispersion * intraday_momentum
+        # Tính Z-Score rolling
+        zscore = (raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)
+        # Rank rolling (pct=True) và scale về [-1, 1]
+        rank = zscore.rolling(window).rank(pct=True)
+        signal = (rank * 2) - 1
+        # Xử lý NaN
+        signal = signal.ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_176_tanh(df, window=15):
+        # Tính Intraday_Exhaustion_Momentum
+        intraday_momentum = (df['close'] - df['open']) / df['open'].replace(0, np.nan)
+        # Tính Sector_Relative_Volume_Dispersion
+        volume_ma = df['matchingVolume'].rolling(window=window).mean()
+        volume_ratio = df['matchingVolume'] / volume_ma.replace(0, np.nan)
+        volume_dispersion = volume_ratio.rolling(window=window).std()
+        raw = volume_dispersion * intraday_momentum
+        # Chuẩn hóa với Tanh động: chia cho rolling std để giữ cường độ tương đối
+        denominator = raw.rolling(window).std().replace(0, np.nan)
+        normalized = np.tanh(raw / denominator)
+        normalized = normalized.ffill().fillna(0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_176_zscore(df, window=10):
+        # Tính Intraday_Exhaustion_Momentum
+        intraday_momentum = (df['close'] - df['open']) / df['open'].replace(0, np.nan)
+        # Tính Sector_Relative_Volume_Dispersion
+        volume_ma = df['matchingVolume'].rolling(window=window).mean()
+        volume_ratio = df['matchingVolume'] / volume_ma.replace(0, np.nan)
+        volume_dispersion = volume_ratio.rolling(window=window).std()
+        raw = volume_dispersion * intraday_momentum
+        # Rolling Z-Score và clip [-1,1]
+        mean_ = raw.rolling(window).mean()
+        std_ = raw.rolling(window).std().replace(0, np.nan)
+        zscore = (raw - mean_) / std_
+        signal = zscore.clip(-1, 1)
+        signal = signal.ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_192_rank(df, window=10):
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        delay_close = close.shift(1)
+        true_range = pd.concat([high - low, (high - delay_close).abs(), (low - delay_close).abs()], axis=1).max(axis=1)
+        mean_true_range = true_range.rolling(window=window).mean()
+        raw = - (true_range / (mean_true_range + 1e-8)) * ((2 * close - high - low) / (high - low + 1e-8))
+        result = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_192_tanh(df, window=15):
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        delay_close = close.shift(1)
+        true_range = pd.concat([high - low, (high - delay_close).abs(), (low - delay_close).abs()], axis=1).max(axis=1)
+        mean_true_range = true_range.rolling(window=window).mean()
+        raw = - (true_range / (mean_true_range + 1e-8)) * ((2 * close - high - low) / (high - low + 1e-8))
+        result = np.tanh(raw / raw.rolling(window).std())
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_192_zscore(df, window=30):
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        delay_close = close.shift(1)
+        true_range = pd.concat([high - low, (high - delay_close).abs(), (low - delay_close).abs()], axis=1).max(axis=1)
+        mean_true_range = true_range.rolling(window=window).mean()
+        raw = - (true_range / (mean_true_range + 1e-8)) * ((2 * close - high - low) / (high - low + 1e-8))
+        result = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std()).clip(-1, 1)
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_194_rank(df, window=20):
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        delay_close = close.shift(1)
+        true_high = high - low
+        true_high_abs_1 = (high - delay_close).abs()
+        true_high_abs_2 = (low - delay_close).abs()
+        tr_series = pd.concat([true_high, true_high_abs_1, true_high_abs_2], axis=1).max(axis=1)
+        mean_tr = tr_series.rolling(window=window, min_periods=1).mean().replace(0, np.nan)
+        raw = -(tr_series / (mean_tr + 1e-8)) * ((2 * close - high - low) / (high - low + 1e-8)) * ((2 * close - high - low) / (high - low + 1e-8)).abs()
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_194_tanh(df, window=20):
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        delay_close = close.shift(1)
+        true_high = high - low
+        true_high_abs_1 = (high - delay_close).abs()
+        true_high_abs_2 = (low - delay_close).abs()
+        tr_series = pd.concat([true_high, true_high_abs_1, true_high_abs_2], axis=1).max(axis=1)
+        mean_tr = tr_series.rolling(window=window, min_periods=1).mean().replace(0, np.nan)
+        raw = -(tr_series / (mean_tr + 1e-8)) * ((2 * close - high - low) / (high - low + 1e-8)) * ((2 * close - high - low) / (high - low + 1e-8)).abs()
+        signal = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_194_zscore(df, window=15):
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        delay_close = close.shift(1)
+        true_high = high - low
+        true_high_abs_1 = (high - delay_close).abs()
+        true_high_abs_2 = (low - delay_close).abs()
+        tr_series = pd.concat([true_high, true_high_abs_1, true_high_abs_2], axis=1).max(axis=1)
+        mean_tr = tr_series.rolling(window=window, min_periods=1).mean().replace(0, np.nan)
+        raw = -(tr_series / (mean_tr + 1e-8)) * ((2 * close - high - low) / (high - low + 1e-8)) * ((2 * close - high - low) / (high - low + 1e-8)).abs()
+        signal = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_240_tanh(df, window=20):
+        delta_close = df['close'].diff()
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        raw = delta_close * volume
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std()
+        zscore = (raw - mean) / (std + 1e-8)
+        signal = np.tanh(zscore).ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_240_zscore(df, window=25):
+        delta_close = df['close'].diff()
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        raw = delta_close * volume
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std()
+        zscore = (raw - mean) / (std + 1e-8)
+        signal = zscore.clip(-1, 1).ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_269_rank(df, window=5, factor=90):
+        factor=int(factor)
+        low_min = df['low'].rolling(window=window).min()
+        high_max = df['high'].rolling(window=window).max()
+        raw = (df['close'] - low_min) / (high_max - low_min + 1e-8)
+        norm = (raw.rolling(factor).rank(pct=True) * 2) - 1
+        return norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_269_wf(df, window=3, factor=100):
+        factor=int(factor)
+        low_min = df['low'].rolling(window=window).min()
+        high_max = df['high'].rolling(window=window).max()
+        raw = (df['close'] - low_min) / (high_max - low_min + 1e-8)
+        low_q = raw.rolling(factor).quantile(0.05)
+        high_q = raw.rolling(factor).quantile(0.95)
+        winsorized = raw.clip(lower=low_q, upper=high_q, axis=0)
+        norm = np.arctanh(((winsorized - low_q) / (high_q - low_q + 1e-9)) * 1.98 - 0.99)
+        return norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_269_zscore(df, window=3, factor=50):
+        factor=int(factor)
+        low_min = df['low'].rolling(window=window).min()
+        high_max = df['high'].rolling(window=window).max()
+        raw = (df['close'] - low_min) / (high_max - low_min + 1e-8)
+        norm = ((raw - raw.rolling(factor).mean()) / raw.rolling(factor).std().replace(0, np.nan)).clip(-1, 1)
+        return norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_293_tanh(df, window=15):
+        pct_chg = df['close'].pct_change(window).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        z_ret = (ret - ret.rolling(window).mean()) / ret.rolling(window).std().replace(0, np.nan)
+        hl_range = df['high'] - df['low']
+        avg_hl = hl_range.rolling(window).mean()
+        volume = df['matchingVolume']
+        avg_vol = volume.rolling(window).mean()
+        raw = pct_chg.clip(None, 0) * -1 * z_ret * hl_range / (avg_hl + 1e-8) * volume / (avg_vol + 1e-8)
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return normalized.fillna(0)
+
+
+    @staticmethod
+    def alpha_quanta_randomizer_307_rank(df, window=90):
+        ret = df['close'].pct_change().fillna(0)
+        ts_mean = ret.rolling(window=5).mean()
+        delta_ts_mean = ts_mean.diff().fillna(0)
+        ts_std = ret.rolling(window=20).std().replace(0, np.nan).fillna(1e-8)
+        inv_ts_std = 1.0 / (ts_std + 1e-8)
+        raw = delta_ts_mean * inv_ts_std
+        # Normalize C: Rolling Z-Score
+        mean_raw = raw.rolling(window).mean()
+        std_raw = raw.rolling(window).std().replace(0, np.nan).fillna(1e-8)
+        normalized = ((raw - mean_raw) / std_raw).clip(-1.0, 1.0)
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_307_sign(df, window=5):
+        ret = df['close'].pct_change().fillna(0)
+        ts_mean = ret.rolling(window=5).mean()
+        delta_ts_mean = ts_mean.diff().fillna(0)
+        ts_std = ret.rolling(window=20).std().replace(0, np.nan).fillna(1e-8)
+        inv_ts_std = 1.0 / (ts_std + 1e-8)
+        raw = delta_ts_mean * inv_ts_std
+        # Normalize B: Dynamic Tanh
+        denom = raw.rolling(window).std().replace(0, np.nan).fillna(1e-8)
+        normalized = np.tanh(raw / denom)
+        return normalized.fillna(0.0)
+
 class Domains:
     @staticmethod
     def compute_vwap(df, window=200):
@@ -12359,7 +12823,21 @@ class Domains:
             'alpha_quanta_full_base_077_rank', 'alpha_quanta_full_base_077_sign', 'alpha_quanta_full_base_077_tanh', 'alpha_quanta_full_base_088_rank',
             'alpha_quanta_full_base_088_tanh', 'alpha_quanta_full_base_088_tanh', 'alpha_quanta_full_base_088_zscore', 'alpha_quanta_full_base_111_wf',
             'alpha_quanta_full_base_111_zscore', 'alpha_quanta_full_base_132_rank', 'alpha_quanta_full_base_132_sign', 'alpha_quanta_full_base_171_rank',
-            'alpha_quanta_full_base_225_sign', 'alpha_quanta_full_base_225_tanh'
+            'alpha_quanta_full_base_225_sign', 'alpha_quanta_full_base_225_tanh',
+
+
+            'alpha_quanta_randomizer_029_wf', 'alpha_quanta_randomizer_051_rank', 'alpha_quanta_randomizer_051_tanh', 'alpha_quanta_randomizer_051_zscore', 
+            'alpha_quanta_randomizer_053_rank', 'alpha_quanta_randomizer_053_tanh', 'alpha_quanta_randomizer_053_zscore', 'alpha_quanta_randomizer_069_rank',
+            'alpha_quanta_randomizer_069_tanh', 'alpha_quanta_randomizer_069_tanh', 'alpha_quanta_randomizer_069_wf', 'alpha_quanta_randomizer_069_zscore', 
+            'alpha_quanta_randomizer_161_rank', 'alpha_quanta_randomizer_161_tanh', 'alpha_quanta_randomizer_161_zscore', 'alpha_quanta_randomizer_167_rank', 
+            'alpha_quanta_randomizer_167_sign', 'alpha_quanta_randomizer_167_tanh', 'alpha_quanta_randomizer_167_wf', 'alpha_quanta_randomizer_168_rank', 'alpha_quanta_randomizer_168_sign', 
+            'alpha_quanta_randomizer_168_tanh', 'alpha_quanta_randomizer_176_rank', 'alpha_quanta_randomizer_176_tanh', 'alpha_quanta_randomizer_176_zscore', 'alpha_quanta_randomizer_192_rank',
+            'alpha_quanta_randomizer_192_tanh', 'alpha_quanta_randomizer_192_zscore', 'alpha_quanta_randomizer_194_rank', 'alpha_quanta_randomizer_194_tanh', 'alpha_quanta_randomizer_194_zscore',
+            'alpha_quanta_randomizer_240_tanh', 'alpha_quanta_randomizer_240_zscore', 'alpha_quanta_randomizer_269_rank', 'alpha_quanta_randomizer_269_wf', 'alpha_quanta_randomizer_269_zscore', 
+            'alpha_quanta_randomizer_293_tanh', 'alpha_quanta_randomizer_307_rank', 'alpha_quanta_randomizer_307_sign'
+
+
+
         ]
 
         custom_c_list = [f"c{str(i).rjust(2, '0')}" for i in range(1, 51)]

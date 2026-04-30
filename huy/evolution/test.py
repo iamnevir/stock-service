@@ -29,7 +29,7 @@ def main():
             except (json.JSONDecodeError, ValueError):
                 tracking_data = {}
 
-    client = pymongo.MongoClient(get_mongo_uri("mgc3"))
+    client = pymongo.MongoClient(get_mongo_uri())
     col = client["alpha"]["gen_alpha"]
     
     print("Đang tải toàn bộ alphas từ database để phân tích các biến thể...")

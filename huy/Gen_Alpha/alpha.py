@@ -19071,3 +19071,2741 @@ class Alpha:
         normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
         normalized = normalized.ffill().fillna(0).replace([np.inf, -np.inf], 0)
         return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_284_tanh(df, window=3, window_ratio_denom=40):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        vwap = (close * volume).rolling(window).sum() / (volume.rolling(window).sum() + 1e-12)
+        count_above = ((close > vwap).rolling(window).sum())
+        part1 = count_above / window
+        vol_mean_short = volume.rolling(window).mean()
+        vol_mean_long = volume.rolling(window_ratio_denom).mean()
+        part2 = vol_mean_short / (vol_mean_long + 1e-12)
+        raw = part1 * part2
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        normalized = normalized.ffill().fillna(0).replace([np.inf, -np.inf], 0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_284_zscore(df, window=3, window_ratio_denom=10):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        vwap = (close * volume).rolling(window).sum() / (volume.rolling(window).sum() + 1e-12)
+        count_above = ((close > vwap).rolling(window).sum())
+        part1 = count_above / window
+        vol_mean_short = volume.rolling(window).mean()
+        vol_mean_long = volume.rolling(window_ratio_denom).mean()
+        part2 = vol_mean_short / (vol_mean_long + 1e-12)
+        raw = part1 * part2
+        mean_ = raw.rolling(window).mean()
+        std_ = raw.rolling(window).std()
+        normalized = ((raw - mean_) / std_).clip(-1, 1)
+        normalized = normalized.ffill().fillna(0).replace([np.inf, -np.inf], 0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_284_sign(df, window=3, window_ratio_denom=60):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        vwap = (close * volume).rolling(window).sum() / (volume.rolling(window).sum() + 1e-12)
+        count_above = ((close > vwap).rolling(window).sum())
+        part1 = count_above / window
+        vol_mean_short = volume.rolling(window).mean()
+        vol_mean_long = volume.rolling(window_ratio_denom).mean()
+        part2 = vol_mean_short / (vol_mean_long + 1e-12)
+        raw = part1 * part2
+        normalized = np.sign(raw)
+        normalized = normalized.ffill().fillna(0).replace([np.inf, -np.inf], 0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_284_wf(df, window=3, window_ratio_denom=10, p1=0.1, p2=20):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        vwap = (close * volume).rolling(window).sum() / (volume.rolling(window).sum() + 1e-12)
+        count_above = ((close > vwap).rolling(window).sum())
+        part1 = count_above / window
+        vol_mean_short = volume.rolling(window).mean()
+        vol_mean_long = volume.rolling(window_ratio_denom).mean()
+        part2 = vol_mean_short / (vol_mean_long + 1e-12)
+        raw = part1 * part2
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        normalized = normalized.ffill().fillna(0).replace([np.inf, -np.inf], 0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_285_rank(df, window_rank=95):
+        close = df['close'].values
+        volume = df.get('matchingVolume', df.get('volume', 1)).values
+        ret = np.diff(close, prepend=close[0]) / (close + 1e-12)
+        neg_sum = pd.Series(np.convolve(np.minimum(ret, 0), np.ones(window_rank), mode='full')[:len(ret)], index=df.index).abs() + 1e-12
+        pos_sum = pd.Series(np.convolve(np.maximum(ret, 0), np.ones(window_rank), mode='full')[:len(ret)], index=df.index) + 1e-12
+        ratio = neg_sum / pos_sum
+        vol_series = close * volume
+        vwap = pd.Series(np.convolve(vol_series, np.ones(5), mode='full')[:len(close)], index=df.index) / (pd.Series(np.convolve(volume, np.ones(5), mode='full')[:len(close)], index=df.index) + 1e-12)
+        close_vwap = close - vwap
+        zscore = ((close_vwap - close_vwap.rolling(10).mean()) / close_vwap.rolling(10).std().replace(0, np.nan)).fillna(0)
+        raw = ratio + zscore
+        normalized = (raw.rolling(window_rank).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_285_tanh(df, window_dynamic=75):
+        close = df['close'].values
+        volume = df.get('matchingVolume', df.get('volume', 1)).values
+        ret = np.diff(close, prepend=close[0]) / (close + 1e-12)
+        neg_sum = pd.Series(np.convolve(np.minimum(ret, 0), np.ones(window_dynamic), mode='full')[:len(ret)], index=df.index).abs() + 1e-12
+        pos_sum = pd.Series(np.convolve(np.maximum(ret, 0), np.ones(window_dynamic), mode='full')[:len(ret)], index=df.index) + 1e-12
+        ratio = neg_sum / pos_sum
+        vol_series = close * volume
+        vwap = pd.Series(np.convolve(vol_series, np.ones(5), mode='full')[:len(close)], index=df.index) / (pd.Series(np.convolve(volume, np.ones(5), mode='full')[:len(close)], index=df.index) + 1e-12)
+        close_vwap = close - vwap
+        zscore = ((close_vwap - close_vwap.rolling(10).mean()) / close_vwap.rolling(10).std().replace(0, np.nan)).fillna(0)
+        raw = ratio + zscore
+        normalized = np.tanh(raw / raw.rolling(window_dynamic).std().replace(0, np.nan))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_285_zscore(df, window_zscore=85):
+        close = df['close'].values
+        volume = df.get('matchingVolume', df.get('volume', 1)).values
+        ret = np.diff(close, prepend=close[0]) / (close + 1e-12)
+        neg_sum = pd.Series(np.convolve(np.minimum(ret, 0), np.ones(window_zscore), mode='full')[:len(ret)], index=df.index).abs() + 1e-12
+        pos_sum = pd.Series(np.convolve(np.maximum(ret, 0), np.ones(window_zscore), mode='full')[:len(ret)], index=df.index) + 1e-12
+        ratio = neg_sum / pos_sum
+        vol_series = close * volume
+        vwap = pd.Series(np.convolve(vol_series, np.ones(5), mode='full')[:len(close)], index=df.index) / (pd.Series(np.convolve(volume, np.ones(5), mode='full')[:len(close)], index=df.index) + 1e-12)
+        close_vwap = close - vwap
+        zscore = ((close_vwap - close_vwap.rolling(10).mean()) / close_vwap.rolling(10).std().replace(0, np.nan)).fillna(0)
+        raw = ratio + zscore
+        normalized = ((raw - raw.rolling(window_zscore).mean()) / raw.rolling(window_zscore).std().replace(0, np.nan)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_285_sign(df, window_binary=90):
+        close = df['close'].values
+        volume = df.get('matchingVolume', df.get('volume', 1)).values
+        ret = np.diff(close, prepend=close[0]) / (close + 1e-12)
+        neg_sum = pd.Series(np.convolve(np.minimum(ret, 0), np.ones(window_binary), mode='full')[:len(ret)], index=df.index).abs() + 1e-12
+        pos_sum = pd.Series(np.convolve(np.maximum(ret, 0), np.ones(window_binary), mode='full')[:len(ret)], index=df.index) + 1e-12
+        ratio = neg_sum / pos_sum
+        vol_series = close * volume
+        vwap = pd.Series(np.convolve(vol_series, np.ones(5), mode='full')[:len(close)], index=df.index) / (pd.Series(np.convolve(volume, np.ones(5), mode='full')[:len(close)], index=df.index) + 1e-12)
+        close_vwap = close - vwap
+        zscore = ((close_vwap - close_vwap.rolling(10).mean()) / close_vwap.rolling(10).std().replace(0, np.nan)).fillna(0)
+        raw = ratio + zscore
+        normalized = np.sign(raw)
+        return pd.Series(normalized, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_285_wf(df, window_fisher=70, quantile_factor=0.3):
+        close = df['close'].values
+        volume = df.get('matchingVolume', df.get('volume', 1)).values
+        ret = np.diff(close, prepend=close[0]) / (close + 1e-12)
+        neg_sum = pd.Series(np.convolve(np.minimum(ret, 0), np.ones(window_fisher), mode='full')[:len(ret)], index=df.index).abs() + 1e-12
+        pos_sum = pd.Series(np.convolve(np.maximum(ret, 0), np.ones(window_fisher), mode='full')[:len(ret)], index=df.index) + 1e-12
+        ratio = neg_sum / pos_sum
+        vol_series = close * volume
+        vwap = pd.Series(np.convolve(vol_series, np.ones(5), mode='full')[:len(close)], index=df.index) / (pd.Series(np.convolve(volume, np.ones(5), mode='full')[:len(close)], index=df.index) + 1e-12)
+        close_vwap = close - vwap
+        zscore = ((close_vwap - close_vwap.rolling(10).mean()) / close_vwap.rolling(10).std().replace(0, np.nan)).fillna(0)
+        raw = ratio + zscore
+        low = raw.rolling(window_fisher).quantile(quantile_factor)
+        high = raw.rolling(window_fisher).quantile(1 - quantile_factor)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_286_k(df, window_rank=100):
+        open, close = df['open'], df['close']
+        log_return = np.log(open / (close.shift(1) + 1e-8))
+        abs_log_open = np.abs(log_return)
+        abs_log_close = np.abs(np.log(close / (open + 1e-8)))
+        sum_log = log_return.rolling(10).sum()
+        denom = log_return.abs().rolling(10).sum() + abs_log_close.rolling(10).sum() + 1e-8
+        raw = sum_log / denom
+        rolling_rank = raw.rolling(window_rank).rank(pct=True) * 2 - 1
+        return rolling_rank.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_286_h(df, window=100):
+        open, close = df['open'], df['close']
+        log_return = np.log(open / (close.shift(1) + 1e-8))
+        sum_log = log_return.rolling(10).sum()
+        denom = log_return.abs().rolling(10).sum() + np.abs(np.log(close / (open + 1e-8))).rolling(10).sum() + 1e-8
+        raw = sum_log / denom
+        return np.tanh(raw / raw.rolling(window).std().replace(0, np.nan)).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_286_p(df, window=100):
+        open, close = df['open'], df['close']
+        log_return = np.log(open / (close.shift(1) + 1e-8))
+        sum_log = log_return.rolling(10).sum()
+        denom = log_return.abs().rolling(10).sum() + np.abs(np.log(close / (open + 1e-8))).rolling(10).sum() + 1e-8
+        raw = sum_log / denom
+        mean_ = raw.rolling(window).mean()
+        std_ = raw.rolling(window).std().replace(0, np.nan)
+        return ((raw - mean_) / std_).clip(-1, 1).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_286_y(df):
+        open, close = df['open'], df['close']
+        log_return = np.log(open / (close.shift(1) + 1e-8))
+        sum_log = log_return.rolling(10).sum()
+        denom = log_return.abs().rolling(10).sum() + np.abs(np.log(close / (open + 1e-8))).rolling(10).sum() + 1e-8
+        raw = sum_log / denom
+        return pd.Series(np.sign(raw), index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_286_r(df, quantile=0.1, window_winsor=90):
+        open, close = df['open'], df['close']
+        log_return = np.log(open / (close.shift(1) + 1e-8))
+        sum_log = log_return.rolling(10).sum()
+        denom = log_return.abs().rolling(10).sum() + np.abs(np.log(close / (open + 1e-8))).rolling(10).sum() + 1e-8
+        raw = sum_log / denom
+        low = raw.rolling(window_winsor).quantile(quantile)
+        high = raw.rolling(window_winsor).quantile(1 - quantile)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        delta = high - low + 1e-9
+        normalized = np.arctanh(((winsorized - low) / delta) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_287_rank(df, window=60):
+        close = df['close']
+        open = df['open']
+        high = df['high']
+        low = df['low']
+        cond1 = (open > close.shift(1)) & (low <= close.shift(1))
+        cond2 = (open < close.shift(1)) & (high >= close.shift(1))
+        count = (cond1 | cond2).rolling(window=window).sum()
+        raw = count / window
+        raw = raw.fillna(0)
+        result = raw.rolling(window=window).rank(pct=True) * 2 - 1
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_287_tanh(df, window=50):
+        close = df['close']
+        open = df['open']
+        high = df['high']
+        low = df['low']
+        cond1 = (open > close.shift(1)) & (low <= close.shift(1))
+        cond2 = (open < close.shift(1)) & (high >= close.shift(1))
+        count = (cond1 | cond2).rolling(window=window).sum()
+        raw = count / window
+        raw = raw.fillna(0)
+        std = raw.rolling(window=window).std().replace(0, 1e-9)
+        result = np.tanh(raw / std)
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_287_zscore(df, window=75):
+        close = df['close']
+        open = df['open']
+        high = df['high']
+        low = df['low']
+        cond1 = (open > close.shift(1)) & (low <= close.shift(1))
+        cond2 = (open < close.shift(1)) & (high >= close.shift(1))
+        count = (cond1 | cond2).rolling(window=window).sum()
+        raw = count / window
+        raw = raw.fillna(0)
+        mean = raw.rolling(window=window).mean()
+        std = raw.rolling(window=window).std().replace(0, 1e-9)
+        result = ((raw - mean) / std).clip(-1, 1)
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_287_sign(df, window=5):
+        close = df['close']
+        open = df['open']
+        high = df['high']
+        low = df['low']
+        cond1 = (open > close.shift(1)) & (low <= close.shift(1))
+        cond2 = (open < close.shift(1)) & (high >= close.shift(1))
+        count = (cond1 | cond2).rolling(window=window).sum()
+        raw = count / window
+        raw = raw.fillna(0)
+        result = np.sign(raw)
+        return result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_287_wf(df, window=70, p1=0.9):
+        close = df['close']
+        open = df['open']
+        high = df['high']
+        low = df['low']
+        cond1 = (open > close.shift(1)) & (low <= close.shift(1))
+        cond2 = (open < close.shift(1)) & (high >= close.shift(1))
+        count = (cond1 | cond2).rolling(window=window).sum()
+        raw = count / window
+        raw = raw.fillna(0)
+        p2 = window
+        low_bound = raw.rolling(window=p2).quantile(p1)
+        high_bound = raw.rolling(window=p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low_bound, upper=high_bound, axis=0)
+        numerator = winsorized - low_bound
+        denominator = (high_bound - low_bound).replace(0, 1e-9)
+        normalized = np.arctanh((numerator / denominator) * 1.98 - 0.99)
+        # handle inf after arctanh due to extreme values
+        normalized = normalized.replace([np.inf, -np.inf], np.nan).fillna(0)
+        return -normalized.clip(-1, 1)
+
+    @staticmethod
+    def alpha_quanta_randomizer_288_rank(df, window=55):
+        close = df['close']
+        open_ = df['open']
+        high = df['high']
+        low = df['low']
+        delay_close = close.shift(1)
+        epsilon = 1e-8
+        log_open_delay = np.log((open_ / (delay_close + epsilon)).fillna(0))
+        sum_log_open = log_open_delay.rolling(window).sum()
+        abs_log_open = np.abs(log_open_delay).rolling(window).sum()
+        abs_log_close_open = np.abs(np.log((close / (open_ + epsilon)).replace([np.inf, -np.inf], np.nan).fillna(0))).rolling(window).sum()
+        ratio1 = sum_log_open / (abs_log_open + abs_log_close_open + epsilon)
+        hl_div_close = (high - low) / (close + epsilon)
+        mean_hl = hl_div_close.rolling(window).mean()
+        median_hl = hl_div_close.rolling(window * 2).median()
+        ratio2 = mean_hl / (mean_hl + median_hl + epsilon)
+        raw = -(ratio1 * ratio2)
+        rank_raw = raw.rolling(window).rank(pct=True) * 2 - 1
+        return -rank_raw.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_288_tanh(df, window=20):
+        close = df['close']
+        open_ = df['open']
+        high = df['high']
+        low = df['low']
+        delay_close = close.shift(1)
+        epsilon = 1e-8
+        log_open_delay = np.log((open_ / (delay_close + epsilon)).fillna(0))
+        sum_log_open = log_open_delay.rolling(window).sum()
+        abs_log_open = np.abs(log_open_delay).rolling(window).sum()
+        abs_log_close_open = np.abs(np.log((close / (open_ + epsilon)).replace([np.inf, -np.inf], np.nan).fillna(0))).rolling(window).sum()
+        ratio1 = sum_log_open / (abs_log_open + abs_log_close_open + epsilon)
+        hl_div_close = (high - low) / (close + epsilon)
+        mean_hl = hl_div_close.rolling(window).mean()
+        median_hl = hl_div_close.rolling(window * 2).median()
+        ratio2 = mean_hl / (mean_hl + median_hl + epsilon)
+        raw = -(ratio1 * ratio2)
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_288_zscore(df, window=55):
+        close = df['close']
+        open_ = df['open']
+        high = df['high']
+        low = df['low']
+        delay_close = close.shift(1)
+        epsilon = 1e-8
+        log_open_delay = np.log((open_ / (delay_close + epsilon)).fillna(0))
+        sum_log_open = log_open_delay.rolling(window).sum()
+        abs_log_open = np.abs(log_open_delay).rolling(window).sum()
+        abs_log_close_open = np.abs(np.log((close / (open_ + epsilon)).replace([np.inf, -np.inf], np.nan).fillna(0))).rolling(window).sum()
+        ratio1 = sum_log_open / (abs_log_open + abs_log_close_open + epsilon)
+        hl_div_close = (high - low) / (close + epsilon)
+        mean_hl = hl_div_close.rolling(window).mean()
+        median_hl = hl_div_close.rolling(window * 2).median()
+        ratio2 = mean_hl / (mean_hl + median_hl + epsilon)
+        raw = -(ratio1 * ratio2)
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_288_sign(df, window=20):
+        close = df['close']
+        open_ = df['open']
+        high = df['high']
+        low = df['low']
+        delay_close = close.shift(1)
+        epsilon = 1e-8
+        log_open_delay = np.log((open_ / (delay_close + epsilon)).fillna(0))
+        sum_log_open = log_open_delay.rolling(window).sum()
+        abs_log_open = np.abs(log_open_delay).rolling(window).sum()
+        abs_log_close_open = np.abs(np.log((close / (open_ + epsilon)).replace([np.inf, -np.inf], np.nan).fillna(0))).rolling(window).sum()
+        ratio1 = sum_log_open / (abs_log_open + abs_log_close_open + epsilon)
+        hl_div_close = (high - low) / (close + epsilon)
+        mean_hl = hl_div_close.rolling(window).mean()
+        median_hl = hl_div_close.rolling(window * 2).median()
+        ratio2 = mean_hl / (mean_hl + median_hl + epsilon)
+        raw = -(ratio1 * ratio2)
+        normalized = np.sign(raw)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_288_wf(df, window=30, quantile=0.1):
+        close = df['close']
+        open_ = df['open']
+        high = df['high']
+        low = df['low']
+        delay_close = close.shift(1)
+        epsilon = 1e-8
+        log_open_delay = np.log((open_ / (delay_close + epsilon)).fillna(0))
+        sum_log_open = log_open_delay.rolling(window).sum()
+        abs_log_open = np.abs(log_open_delay).rolling(window).sum()
+        abs_log_close_open = np.abs(np.log((close / (open_ + epsilon)).replace([np.inf, -np.inf], np.nan).fillna(0))).rolling(window).sum()
+        ratio1 = sum_log_open / (abs_log_open + abs_log_close_open + epsilon)
+        hl_div_close = (high - low) / (close + epsilon)
+        mean_hl = hl_div_close.rolling(window).mean()
+        median_hl = hl_div_close.rolling(window * 2).median()
+        ratio2 = mean_hl / (mean_hl + median_hl + epsilon)
+        raw = -(ratio1 * ratio2)
+        p2 = window * 2
+        low_q = raw.rolling(p2).quantile(quantile)
+        high_q = raw.rolling(p2).quantile(1 - quantile)
+        winsorized = raw.clip(lower=low_q, upper=high_q, axis=0)
+        normalized = np.arctanh(((winsorized - low_q) / (high_q - low_q + epsilon)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_289_rank(df, window=20, sub_window=20):
+        close = df['close']
+        ret = close.pct_change()
+        ts_pct_change = close.pct_change(window)
+        ts_std_60 = ret.rolling(window).std()
+        ts_std_10 = ret.rolling(sub_window).std()
+        raw = (ts_pct_change.rank(pct=True) - ts_std_60.rank(pct=True) + (ts_std_10 / (ts_std_60 + 1e-8)).rank(pct=True))
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_289_tanh(df, window=90, sub_window=20):
+        close = df['close']
+        ret = close.pct_change()
+        ts_pct_change = close.pct_change(window)
+        ts_std_60 = ret.rolling(window).std()
+        ts_std_10 = ret.rolling(sub_window).std()
+        raw = (ts_pct_change.rank(pct=True) - ts_std_60.rank(pct=True) + (ts_std_10 / (ts_std_60 + 1e-8)).rank(pct=True))
+        signal = np.tanh(raw / raw.rolling(window).std())
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_289_zscore(df, window=10, sub_window=10):
+        close = df['close']
+        ret = close.pct_change()
+        ts_pct_change = close.pct_change(window)
+        ts_std_60 = ret.rolling(window).std()
+        ts_std_10 = ret.rolling(sub_window).std()
+        raw = (ts_pct_change.rank(pct=True) - ts_std_60.rank(pct=True) + (ts_std_10 / (ts_std_60 + 1e-8)).rank(pct=True))
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std()
+        signal = ((raw - mean) / std).clip(-1, 1)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_289_sign(df, window=10, sub_window=40):
+        close = df['close']
+        ret = close.pct_change()
+        ts_pct_change = close.pct_change(window)
+        ts_std_60 = ret.rolling(window).std()
+        ts_std_10 = ret.rolling(sub_window).std()
+        raw = (ts_pct_change.rank(pct=True) - ts_std_60.rank(pct=True) + (ts_std_10 / (ts_std_60 + 1e-8)).rank(pct=True))
+        signal = np.sign(raw)
+        return pd.Series(signal, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_289_wf(df, window=20, sub_window=20, p1=0.05):
+        close = df['close']
+        ret = close.pct_change()
+        ts_pct_change = close.pct_change(window)
+        ts_std_60 = ret.rolling(window).std()
+        ts_std_10 = ret.rolling(sub_window).std()
+        raw = (ts_pct_change.rank(pct=True) - ts_std_60.rank(pct=True) + (ts_std_10 / (ts_std_60 + 1e-8)).rank(pct=True))
+        low = raw.rolling(window).quantile(p1)
+        high = raw.rolling(window).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_290_rank(df, window=10):
+        open = df['open']
+        close = df['close']
+        log_ratio1 = np.log(open / (close.shift(1) + 1e-8))
+        log_ratio2 = np.log(close / (open + 1e-8))
+        ts_mean1 = log_ratio1.rolling(window).mean()
+        ts_mean2 = log_ratio2.rolling(window).mean()
+        raw = ts_mean1 - ts_mean2
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_290_tanh(df, window=5):
+        open = df['open']
+        close = df['close']
+        log_ratio1 = np.log(open / (close.shift(1) + 1e-8))
+        log_ratio2 = np.log(close / (open + 1e-8))
+        ts_mean1 = log_ratio1.rolling(window).mean()
+        ts_mean2 = log_ratio2.rolling(window).mean()
+        raw = ts_mean1 - ts_mean2
+        normalized = np.tanh(raw / raw.rolling(window).std())
+        return -normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_290_zscore(df, window=5):
+        open = df['open']
+        close = df['close']
+        log_ratio1 = np.log(open / (close.shift(1) + 1e-8))
+        log_ratio2 = np.log(close / (open + 1e-8))
+        ts_mean1 = log_ratio1.rolling(window).mean()
+        ts_mean2 = log_ratio2.rolling(window).mean()
+        raw = ts_mean1 - ts_mean2
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std()).clip(-1, 1)
+        return -normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_290_sign(df, window=5):
+        open = df['open']
+        close = df['close']
+        log_ratio1 = np.log(open / (close.shift(1) + 1e-8))
+        log_ratio2 = np.log(close / (open + 1e-8))
+        ts_mean1 = log_ratio1.rolling(window).mean()
+        ts_mean2 = log_ratio2.rolling(window).mean()
+        raw = ts_mean1 - ts_mean2
+        normalized = np.sign(raw)
+        return -normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_290_wf(df, window=10, p1=0.3):
+        open = df['open']
+        close = df['close']
+        log_ratio1 = np.log(open / (close.shift(1) + 1e-8))
+        log_ratio2 = np.log(close / (open + 1e-8))
+        ts_mean1 = log_ratio1.rolling(window).mean()
+        ts_mean2 = log_ratio2.rolling(window).mean()
+        raw = ts_mean1 - ts_mean2
+        p2 = window
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_291_k(df, window=65):
+        close_delay1 = df['close'].shift(1)
+        open_delay_diff = (df['open'] - close_delay1).abs()
+        close_delay_diff = (df['close'] - close_delay1).abs()
+        cond1 = open_delay_diff > 1e-8
+        cond2 = close_delay_diff < open_delay_diff
+        condition = cond1 & cond2
+        count_series = pd.Series(np.where(condition, 1, 0), index=df.index)
+        raw = count_series.rolling(window).sum()
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_291_h(df, window=15):
+        close_delay1 = df['close'].shift(1)
+        open_delay_diff = (df['open'] - close_delay1).abs()
+        close_delay_diff = (df['close'] - close_delay1).abs()
+        cond1 = open_delay_diff > 1e-8
+        cond2 = close_delay_diff < open_delay_diff
+        condition = cond1 & cond2
+        count_series = pd.Series(np.where(condition, 1, 0), index=df.index)
+        raw = count_series.rolling(window).sum()
+        std = raw.rolling(window).std().replace(0, np.nan)
+        normalized = np.tanh(raw / std)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_291_p(df, window=65):
+        close_delay1 = df['close'].shift(1)
+        open_delay_diff = (df['open'] - close_delay1).abs()
+        close_delay_diff = (df['close'] - close_delay1).abs()
+        cond1 = open_delay_diff > 1e-8
+        cond2 = close_delay_diff < open_delay_diff
+        condition = cond1 & cond2
+        count_series = pd.Series(np.where(condition, 1, 0), index=df.index)
+        raw = count_series.rolling(window).sum()
+        mean = raw.rolling(window).mean()
+        std = raw.rolling(window).std().replace(0, np.nan)
+        normalized = ((raw - mean) / std).clip(-1, 1)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_291_y(df, window=10):
+        close_delay1 = df['close'].shift(1)
+        open_delay_diff = (df['open'] - close_delay1).abs()
+        close_delay_diff = (df['close'] - close_delay1).abs()
+        cond1 = open_delay_diff > 1e-8
+        cond2 = close_delay_diff < open_delay_diff
+        condition = cond1 & cond2
+        count_series = pd.Series(np.where(condition, 1, 0), index=df.index)
+        raw = count_series.rolling(window).sum()
+        normalized = np.sign(raw)
+        return -pd.Series(normalized, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_291_r(df, window=60, quantile=0.1):
+        close_delay1 = df['close'].shift(1)
+        open_delay_diff = (df['open'] - close_delay1).abs()
+        close_delay_diff = (df['close'] - close_delay1).abs()
+        cond1 = open_delay_diff > 1e-8
+        cond2 = close_delay_diff < open_delay_diff
+        condition = cond1 & cond2
+        count_series = pd.Series(np.where(condition, 1, 0), index=df.index)
+        raw = count_series.rolling(window).sum()
+        low = raw.rolling(window).quantile(quantile)
+        high = raw.rolling(window).quantile(1 - quantile)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        numerator = (winsorized - low) / (high - low + 1e-9)
+        normalized = np.arctanh(numerator * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_292_rank(df, window=90):
+        sub_window = 5
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        pct_change = close.pct_change(window)
+        sign = np.sign(pct_change)
+        returns = close.pct_change()
+        return_zscore = (returns - returns.rolling(window).mean()) / returns.rolling(window).std()
+        hl_range = high - low
+        mean_hl_short = hl_range.rolling(sub_window).mean()
+        mean_hl_long = hl_range.rolling(window).mean() + 1e-8
+        volume_short = volume.rolling(sub_window).mean()
+        volume_long = volume.rolling(window).mean() + 1e-8
+        raw = sign * return_zscore * mean_hl_short / mean_hl_long * volume_short / volume_long
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_292_tanh(df, window=10):
+        sub_window = 5
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        pct_change = close.pct_change(window)
+        sign = np.sign(pct_change)
+        returns = close.pct_change()
+        return_zscore = (returns - returns.rolling(window).mean()) / returns.rolling(window).std()
+        hl_range = high - low
+        mean_hl_short = hl_range.rolling(sub_window).mean()
+        mean_hl_long = hl_range.rolling(window).mean() + 1e-8
+        volume_short = volume.rolling(sub_window).mean()
+        volume_long = volume.rolling(window).mean() + 1e-8
+        raw = sign * return_zscore * mean_hl_short / mean_hl_long * volume_short / volume_long
+        normalized = np.tanh(raw / raw.rolling(window).std())
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_292_zscore(df, window=10):
+        sub_window = 5
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        pct_change = close.pct_change(window)
+        sign = np.sign(pct_change)
+        returns = close.pct_change()
+        return_zscore = (returns - returns.rolling(window).mean()) / returns.rolling(window).std()
+        hl_range = high - low
+        mean_hl_short = hl_range.rolling(sub_window).mean()
+        mean_hl_long = hl_range.rolling(window).mean() + 1e-8
+        volume_short = volume.rolling(sub_window).mean()
+        volume_long = volume.rolling(window).mean() + 1e-8
+        raw = sign * return_zscore * mean_hl_short / mean_hl_long * volume_short / volume_long
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std()).clip(-1, 1)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_292_sign(df, window=10):
+        sub_window = 5
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        pct_change = close.pct_change(window)
+        sign = np.sign(pct_change)
+        returns = close.pct_change()
+        return_zscore = (returns - returns.rolling(window).mean()) / returns.rolling(window).std()
+        hl_range = high - low
+        mean_hl_short = hl_range.rolling(sub_window).mean()
+        mean_hl_long = hl_range.rolling(window).mean() + 1e-8
+        volume_short = volume.rolling(sub_window).mean()
+        volume_long = volume.rolling(window).mean() + 1e-8
+        raw = sign * return_zscore * mean_hl_short / mean_hl_long * volume_short / volume_long
+        normalized = np.sign(raw)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_292_wf(df, window=100):
+        sub_window = 5
+        p1 = 0.05
+        p2 = window
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        pct_change = close.pct_change(window)
+        sign = np.sign(pct_change)
+        returns = close.pct_change()
+        return_zscore = (returns - returns.rolling(window).mean()) / returns.rolling(window).std()
+        hl_range = high - low
+        mean_hl_short = hl_range.rolling(sub_window).mean()
+        mean_hl_long = hl_range.rolling(window).mean() + 1e-8
+        volume_short = volume.rolling(sub_window).mean()
+        volume_long = volume.rolling(window).mean() + 1e-8
+        raw = sign * return_zscore * mean_hl_short / mean_hl_long * volume_short / volume_long
+        low_roll = raw.rolling(p2).quantile(p1)
+        high_roll = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low_roll, upper=high_roll, axis=0)
+        normalized = np.arctanh(((winsorized - low_roll) / (high_roll - low_roll + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_293_rank(df, window=35):
+        pct_chg = df['close'].pct_change(window).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        z_ret = (ret - ret.rolling(window).mean()) / ret.rolling(window).std().replace(0, np.nan)
+        hl_range = df['high'] - df['low']
+        avg_hl = hl_range.rolling(window).mean()
+        volume = df['matchingVolume']
+        avg_vol = volume.rolling(window).mean()
+        raw = pct_chg.clip(None, 0) * -1 * z_ret * hl_range / (avg_hl + 1e-8) * volume / (avg_vol + 1e-8)
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_293_tanh(df, window=15):
+        pct_chg = df['close'].pct_change(window).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        z_ret = (ret - ret.rolling(window).mean()) / ret.rolling(window).std().replace(0, np.nan)
+        hl_range = df['high'] - df['low']
+        avg_hl = hl_range.rolling(window).mean()
+        volume = df['matchingVolume']
+        avg_vol = volume.rolling(window).mean()
+        raw = pct_chg.clip(None, 0) * -1 * z_ret * hl_range / (avg_hl + 1e-8) * volume / (avg_vol + 1e-8)
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_293_zscore(df, window=80):
+        pct_chg = df['close'].pct_change(window).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        z_ret = (ret - ret.rolling(window).mean()) / ret.rolling(window).std().replace(0, np.nan)
+        hl_range = df['high'] - df['low']
+        avg_hl = hl_range.rolling(window).mean()
+        volume = df['matchingVolume']
+        avg_vol = volume.rolling(window).mean()
+        raw = pct_chg.clip(None, 0) * -1 * z_ret * hl_range / (avg_hl + 1e-8) * volume / (avg_vol + 1e-8)
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_293_sign(df, window=70):
+        pct_chg = df['close'].pct_change(window).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        z_ret = (ret - ret.rolling(window).mean()) / ret.rolling(window).std().replace(0, np.nan)
+        hl_range = df['high'] - df['low']
+        avg_hl = hl_range.rolling(window).mean()
+        volume = df['matchingVolume']
+        avg_vol = volume.rolling(window).mean()
+        raw = pct_chg.clip(None, 0) * -1 * z_ret * hl_range / (avg_hl + 1e-8) * volume / (avg_vol + 1e-8)
+        normalized = np.sign(raw)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_293_wf(df, window=10, p1=0.7):
+        pct_chg = df['close'].pct_change(window).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        z_ret = (ret - ret.rolling(window).mean()) / ret.rolling(window).std().replace(0, np.nan)
+        hl_range = df['high'] - df['low']
+        avg_hl = hl_range.rolling(window).mean()
+        volume = df['matchingVolume']
+        avg_vol = volume.rolling(window).mean()
+        raw = pct_chg.clip(None, 0) * -1 * z_ret * hl_range / (avg_hl + 1e-8) * volume / (avg_vol + 1e-8)
+        p2 = window
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_294_k(df, window=35):
+        raw = (df['close'] - df['low'] - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-8)
+        ts_mean = raw.rolling(5).mean()
+        delay = raw.shift(5)
+        signal = ts_mean - delay
+        normalized = (signal.rolling(window).rank(pct=True) * 2) - 1
+        normalized = normalized.ffill().fillna(0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_294_h(df, window=15):
+        raw = (df['close'] - df['low'] - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-8)
+        ts_mean = raw.rolling(5).mean()
+        delay = raw.shift(5)
+        signal = ts_mean - delay
+        normalized = np.tanh(signal / (signal.rolling(window).std() + 1e-9))
+        normalized = normalized.ffill().fillna(0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_294_p(df, window=10):
+        raw = (df['close'] - df['low'] - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-8)
+        ts_mean = raw.rolling(5).mean()
+        delay = raw.shift(5)
+        signal = ts_mean - delay
+        mean = signal.rolling(window).mean()
+        std = signal.rolling(window).std()
+        normalized = ((signal - mean) / (std + 1e-9)).clip(-1, 1)
+        normalized = normalized.ffill().fillna(0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_294_t(df):
+        raw = (df['close'] - df['low'] - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-8)
+        ts_mean = raw.rolling(5).mean()
+        delay = raw.shift(5)
+        signal = ts_mean - delay
+        normalized = np.sign(signal)
+        normalized = pd.Series(normalized, index=df.index).ffill().fillna(0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_294_r(df, window=70, p1=0.1):
+        raw = (df['close'] - df['low'] - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-8)
+        ts_mean = raw.rolling(5).mean()
+        delay = raw.shift(5)
+        signal = ts_mean - delay
+        low = signal.rolling(window).quantile(p1)
+        high = signal.rolling(window).quantile(1 - p1)
+        winsorized = signal.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        normalized = normalized.ffill().fillna(0)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_295_rank(df, window=25):
+        raw = df['close'].diff(window) / (df['close'].rolling(window).mean() + 1e-8)
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_295_tanh(df, window=15):
+        raw = df['close'].diff(window) / (df['close'].rolling(window).mean() + 1e-8)
+        normalized = np.tanh(raw / raw.rolling(window).std())
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_295_zscore(df, window=25):
+        raw = df['close'].diff(window) / (df['close'].rolling(window).mean() + 1e-8)
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std()).clip(-1, 1)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_295_sign(df, window=20):
+        raw = df['close'].diff(window) / (df['close'].rolling(window).mean() + 1e-8)
+        normalized = np.sign(raw)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_295_wf(df, window=40, p1=0.3):
+        raw = df['close'].diff(window) / (df['close'].rolling(window).mean() + 1e-8)
+        p2 = window
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_296_rank(df, window=75):
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        log_vol = np.log1p(vol)
+        corr = df['close'].rolling(window).corr(log_vol)
+        signal = (corr.rolling(window).rank(pct=True) * 2) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_296_tanh(df, window=5):
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        log_vol = np.log1p(vol)
+        corr = df['close'].rolling(window).corr(log_vol)
+        signal = np.tanh(corr / corr.rolling(window).std().replace(0, np.nan))
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_296_zscore(df, window=5):
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        log_vol = np.log1p(vol)
+        corr = df['close'].rolling(window).corr(log_vol)
+        mean = corr.rolling(window).mean()
+        std = corr.rolling(window).std().replace(0, np.nan)
+        signal = ((corr - mean) / std).clip(-1, 1)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_296_sign(df, window=5):
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        log_vol = np.log1p(vol)
+        corr = df['close'].rolling(window).corr(log_vol)
+        signal = pd.Series(np.sign(corr), index=df.index)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_296_wf(df, window=70, p1=0.3):
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        log_vol = np.log1p(vol)
+        corr = df['close'].rolling(window).corr(log_vol)
+        p2 = window
+        low = corr.rolling(p2).quantile(p1)
+        high = corr.rolling(p2).quantile(1 - p1)
+        winsorized = corr.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        signal = normalized.fillna(0).clip(-1, 1)
+        return -signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_297_rank(df, window=25):
+        vol = df['matchingVolume'].ffill()
+        raw = vol.rolling(window).std() / (vol.rolling(window).mean() + 1e-8)
+        raw = raw.ffill().fillna(0)
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_297_tanh(df, window=5):
+        vol = df['matchingVolume'].ffill()
+        raw = vol.rolling(window).std() / (vol.rolling(window).mean() + 1e-8)
+        raw = raw.ffill().fillna(0)
+        signal = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        signal = signal.ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_297_zscore(df, window=20):
+        vol = df['matchingVolume'].ffill()
+        raw = vol.rolling(window).std() / (vol.rolling(window).mean() + 1e-8)
+        raw = raw.ffill().fillna(0)
+        signal = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        signal = signal.ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_297_sign(df, window=95):
+        vol = df['matchingVolume'].ffill()
+        raw = vol.rolling(window).std() / (vol.rolling(window).mean() + 1e-8)
+        raw = raw.ffill().fillna(0)
+        signal = np.sign(raw)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_297_wf(df, window=20, p1=0.1):
+        vol = df['matchingVolume'].ffill()
+        raw = vol.rolling(window).std() / (vol.rolling(window).mean() + 1e-8)
+        raw = raw.ffill().fillna(0)
+        p2 = window
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        normalized = normalized.ffill().fillna(0)
+        low_final = normalized.rolling(p2).quantile(p1)
+        high_final = normalized.rolling(p2).quantile(1 - p1)
+        winsorized_final = normalized.clip(lower=low_final, upper=high_final, axis=0)
+        signal = np.arctanh(((winsorized_final - low_final) / (high_final - low_final + 1e-9)) * 1.98 - 0.99)
+        signal = signal.ffill().fillna(0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_298_rank(df, window=5):
+        close_pct = df['close'].pct_change(periods=window)
+        volume_pct = df['matchingVolume'].pct_change(periods=window)
+        raw = np.sign(close_pct - volume_pct) * df['close'].rolling(window).corr(df['matchingVolume'].rolling(window).mean())
+        clean = raw.replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
+        result = (clean.rolling(window).rank(pct=True) * 2) - 1
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_298_tanh(df, window=5):
+        close_pct = df['close'].pct_change(periods=window)
+        volume_pct = df['matchingVolume'].pct_change(periods=window)
+        raw = np.sign(close_pct - volume_pct) * df['close'].rolling(window).corr(df['matchingVolume'].rolling(window).mean())
+        clean = raw.replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
+        result = np.tanh(clean / clean.rolling(window).std().replace(0, np.nan))
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_298_zscore(df, window=5):
+        close_pct = df['close'].pct_change(periods=window)
+        volume_pct = df['matchingVolume'].pct_change(periods=window)
+        raw = np.sign(close_pct - volume_pct) * df['close'].rolling(window).corr(df['matchingVolume'].rolling(window).mean())
+        clean = raw.replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
+        mean_ = clean.rolling(window).mean()
+        std_ = clean.rolling(window).std().replace(0, np.nan)
+        result = ((clean - mean_) / std_).clip(-1, 1)
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_298_sign(df, window=5):
+        close_pct = df['close'].pct_change(periods=window)
+        volume_pct = df['matchingVolume'].pct_change(periods=window)
+        raw = np.sign(close_pct - volume_pct) * df['close'].rolling(window).corr(df['matchingVolume'].rolling(window).mean())
+        clean = raw.replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
+        result = np.sign(clean)
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_298_wf(df, window=40, quantile=0.7):
+        close_pct = df['close'].pct_change(periods=window)
+        volume_pct = df['matchingVolume'].pct_change(periods=window)
+        raw = np.sign(close_pct - volume_pct) * df['close'].rolling(window).corr(df['matchingVolume'].rolling(window).mean())
+        clean = raw.replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
+        low = clean.rolling(window).quantile(quantile)
+        high = clean.rolling(window).quantile(1 - quantile)
+        winsorized = clean.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        result = normalized.replace([np.inf, -np.inf], np.nan).clip(-1, 1)
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_299_rank(df, window=5):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        price_up = close > close.shift(1)
+        vol_gt_mean = volume > volume.rolling(window).mean()
+        both_cond = (price_up & vol_gt_mean).astype(int)
+        raw = both_cond.rolling(window).sum() / window
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_299_tanh(df, window=5):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        price_up = close > close.shift(1)
+        vol_gt_mean = volume > volume.rolling(window).mean()
+        both_cond = (price_up & vol_gt_mean).astype(int)
+        raw = both_cond.rolling(window).sum() / window
+        normalized = np.tanh(raw / (raw.rolling(window).std() + 1e-9))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_299_zscore(df, window=10):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        price_up = close > close.shift(1)
+        vol_gt_mean = volume > volume.rolling(window).mean()
+        both_cond = (price_up & vol_gt_mean).astype(int)
+        raw = both_cond.rolling(window).sum() / window
+        normalized = ((raw - raw.rolling(window).mean()) / (raw.rolling(window).std() + 1e-9)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_299_sign(df, window=5):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        price_up = close > close.shift(1)
+        vol_gt_mean = volume > volume.rolling(window).mean()
+        both_cond = (price_up & vol_gt_mean).astype(int)
+        raw = both_cond.rolling(window).sum() / window
+        normalized = np.sign(raw - 0.5)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_299_wf(df, window=10, p1=0.9):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        price_up = close > close.shift(1)
+        vol_gt_mean = volume > volume.rolling(window).mean()
+        both_cond = (price_up & vol_gt_mean).astype(int)
+        raw = both_cond.rolling(window).sum() / window
+        p2 = window
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_300_rank(df, window=70):
+        high_low_range = df['high'] - df['low']
+        close_range = df['close'].rolling(window).max() - df['close'].rolling(window).min() + 1e-8
+        raw = high_low_range / close_range
+        delta_raw = raw.diff(window)
+        std_close = df['close'].rolling(window).std()
+        raw_signal = delta_raw * std_close
+        normalized = (raw_signal.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_300_tanh(df, window=90):
+        high_low_range = df['high'] - df['low']
+        close_range = df['close'].rolling(window).max() - df['close'].rolling(window).min() + 1e-8
+        raw = high_low_range / close_range
+        delta_raw = raw.diff(window)
+        std_close = df['close'].rolling(window).std()
+        raw_signal = delta_raw * std_close
+        normalized = np.tanh(raw_signal / raw_signal.rolling(window).std())
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_300_zscore(df, window=90):
+        high_low_range = df['high'] - df['low']
+        close_range = df['close'].rolling(window).max() - df['close'].rolling(window).min() + 1e-8
+        raw = high_low_range / close_range
+        delta_raw = raw.diff(window)
+        std_close = df['close'].rolling(window).std()
+        raw_signal = delta_raw * std_close
+        normalized = ((raw_signal - raw_signal.rolling(window).mean()) / raw_signal.rolling(window).std()).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_300_sign(df, window=25):
+        high_low_range = df['high'] - df['low']
+        close_range = df['close'].rolling(window).max() - df['close'].rolling(window).min() + 1e-8
+        raw = high_low_range / close_range
+        delta_raw = raw.diff(window)
+        std_close = df['close'].rolling(window).std()
+        raw_signal = delta_raw * std_close
+        normalized = np.sign(raw_signal)
+        return -pd.Series(normalized, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_300_wf(df, window=40, p1=0.1, p2=20):
+        high_low_range = df['high'] - df['low']
+        close_range = df['close'].rolling(window).max() - df['close'].rolling(window).min() + 1e-8
+        raw = high_low_range / close_range
+        delta_raw = raw.diff(window)
+        std_close = df['close'].rolling(window).std()
+        raw_signal = delta_raw * std_close
+        low = raw_signal.rolling(p2).quantile(p1)
+        high = raw_signal.rolling(p2).quantile(1 - p1)
+        winsorized = raw_signal.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_301_rank(df, window=55):
+        ret = df['close'].pct_change()
+        ts_pct = (df['close'] / df['close'].shift(window) - 1)
+        rank_ts_pct = (ts_pct.rolling(window).rank(pct=True) * 2) - 1
+        mean_ret = ret.rolling(5).mean()
+        sign_ts_mean_ret = np.sign(mean_ret / mean_ret.shift(window) - 1)
+        raw = rank_ts_pct * sign_ts_mean_ret
+        return -raw.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_301_tanh(df, window=55):
+        ret = df['close'].pct_change()
+        ts_pct = (df['close'] / df['close'].shift(window) - 1)
+        rank_ts_pct = (ts_pct.rolling(window).rank(pct=True) * 2) - 1
+        mean_ret = ret.rolling(5).mean()
+        sign_ts_mean_ret = np.sign(mean_ret / mean_ret.shift(window) - 1)
+        raw = rank_ts_pct * sign_ts_mean_ret
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -normalized.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_301_zscore(df, window=5):
+        ret = df['close'].pct_change()
+        ts_pct = (df['close'] / df['close'].shift(window) - 1)
+        rank_ts_pct = (ts_pct.rolling(window).rank(pct=True) * 2) - 1
+        mean_ret = ret.rolling(5).mean()
+        sign_ts_mean_ret = np.sign(mean_ret / mean_ret.shift(window) - 1)
+        raw = rank_ts_pct * sign_ts_mean_ret
+        std = raw.rolling(window).std().replace(0, np.nan)
+        mean = raw.rolling(window).mean()
+        normalized = ((raw - mean) / std).clip(-1, 1)
+        return -normalized.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_301_sign(df, window=15):
+        ret = df['close'].pct_change()
+        ts_pct = (df['close'] / df['close'].shift(window) - 1)
+        rank_ts_pct = (ts_pct.rolling(window).rank(pct=True) * 2) - 1
+        mean_ret = ret.rolling(5).mean()
+        sign_ts_mean_ret = np.sign(mean_ret / mean_ret.shift(window) - 1)
+        raw = rank_ts_pct * sign_ts_mean_ret
+        normalized = np.sign(raw)
+        return -normalized.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_301_wf(df, window=70, p1=0.9):
+        ret = df['close'].pct_change()
+        ts_pct = (df['close'] / df['close'].shift(window) - 1)
+        rank_ts_pct = (ts_pct.rolling(window).rank(pct=True) * 2) - 1
+        mean_ret = ret.rolling(5).mean()
+        sign_ts_mean_ret = np.sign(mean_ret / mean_ret.shift(window) - 1)
+        raw = rank_ts_pct * sign_ts_mean_ret
+        p2 = window
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_302_k(df, window=70, sub_window=30):
+        close = df['close']
+        volume = df['matchingVolume']
+        volume_log = np.log1p(volume)
+        ts_corr = close.rolling(window).corr(volume_log)
+        rank_corr = ts_corr.rolling(window).rank(pct=True) * 2 - 1
+        inv_vol_std = 1.0 / (volume_log.rolling(sub_window).std() + 1)
+        raw = rank_corr * inv_vol_std
+        signal = (raw - raw.rolling(window).min()) / (raw.rolling(window).max() - raw.rolling(window).min() + 1e-9) * 2 - 1
+        return -signal.fillna(0).clip(-1, 1)
+
+    @staticmethod
+    def alpha_quanta_randomizer_302_h(df, window=70, sub_window=30):
+        close = df['close']
+        volume = df['matchingVolume']
+        volume_log = np.log1p(volume)
+        ts_corr = close.rolling(window).corr(volume_log)
+        rank_corr = ts_corr.rolling(window).rank(pct=True) * 2 - 1
+        inv_vol_std = 1.0 / (volume_log.rolling(sub_window).std() + 1)
+        raw = rank_corr * inv_vol_std
+        signal = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -signal.fillna(0).clip(-1, 1)
+
+    @staticmethod
+    def alpha_quanta_randomizer_302_p(df, window=70, sub_window=40):
+        close = df['close']
+        volume = df['matchingVolume']
+        volume_log = np.log1p(volume)
+        ts_corr = close.rolling(window).corr(volume_log)
+        rank_corr = ts_corr.rolling(window).rank(pct=True) * 2 - 1
+        inv_vol_std = 1.0 / (volume_log.rolling(sub_window).std() + 1)
+        raw = rank_corr * inv_vol_std
+        signal = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return -signal.fillna(0).clip(-1, 1)
+
+    @staticmethod
+    def alpha_quanta_randomizer_302_t(df, window=60, sub_window=30):
+        close = df['close']
+        volume = df['matchingVolume']
+        volume_log = np.log1p(volume)
+        ts_corr = close.rolling(window).corr(volume_log)
+        rank_corr = ts_corr.rolling(window).rank(pct=True) * 2 - 1
+        inv_vol_std = 1.0 / (volume_log.rolling(sub_window).std() + 1)
+        raw = rank_corr * inv_vol_std
+        signal = pd.Series(np.sign(raw), index=df.index).fillna(0)
+        return -signal.clip(-1, 1)
+
+    @staticmethod
+    def alpha_quanta_randomizer_302_r(df, window=80, sub_window=5, p1=0.05, p2=40):
+        close = df['close']
+        volume = df['matchingVolume']
+        volume_log = np.log1p(volume)
+        ts_corr = close.rolling(window).corr(volume_log)
+        rank_corr = ts_corr.rolling(window).rank(pct=True) * 2 - 1
+        inv_vol_std = 1.0 / (volume_log.rolling(sub_window).std() + 1)
+        raw = rank_corr * inv_vol_std
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        signal = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -signal.fillna(0).clip(-1, 1)
+
+    @staticmethod
+    def alpha_quanta_randomizer_303_k(df, window=10, window_short=3):
+        ret = df['close'].pct_change(window)
+        rank_ret = ret.rolling(window).rank(pct=True)
+        short_ret = df['close'].pct_change()
+        mean_short_ret = short_ret.rolling(window_short).mean()
+        sign_short_ret = np.sign(mean_short_ret.diff(window))
+        corr = df['close'].rolling(window).corr(df.get('matchingVolume', df.get('volume', 1)))
+        rank_corr = corr.rolling(window).rank(pct=True)
+        vol_std = df.get('matchingVolume', df.get('volume', 1)).rolling(window_short).std()
+        inv_vol = 1.0 / (vol_std + 1.0)
+        raw = rank_ret * sign_short_ret * rank_corr * inv_vol
+        normalized = (raw.rolling(window).rank(pct=True) * 2.0 - 1.0)
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_303_h(df, window=80, window_short=7):
+        ret = df['close'].pct_change(window)
+        rank_ret = ret.rolling(window).rank(pct=True)
+        short_ret = df['close'].pct_change()
+        mean_short_ret = short_ret.rolling(window_short).mean()
+        sign_short_ret = np.sign(mean_short_ret.diff(window))
+        corr = df['close'].rolling(window).corr(df.get('matchingVolume', df.get('volume', 1)))
+        rank_corr = corr.rolling(window).rank(pct=True)
+        vol_std = df.get('matchingVolume', df.get('volume', 1)).rolling(window_short).std()
+        inv_vol = 1.0 / (vol_std + 1.0)
+        raw = rank_ret * sign_short_ret * rank_corr * inv_vol
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_303_e(df, window=90, window_short=7):
+        ret = df['close'].pct_change(window)
+        rank_ret = ret.rolling(window).rank(pct=True)
+        short_ret = df['close'].pct_change()
+        mean_short_ret = short_ret.rolling(window_short).mean()
+        sign_short_ret = np.sign(mean_short_ret.diff(window))
+        corr = df['close'].rolling(window).corr(df.get('matchingVolume', df.get('volume', 1)))
+        rank_corr = corr.rolling(window).rank(pct=True)
+        vol_std = df.get('matchingVolume', df.get('volume', 1)).rolling(window_short).std()
+        inv_vol = 1.0 / (vol_std + 1.0)
+        raw = rank_ret * sign_short_ret * rank_corr * inv_vol
+        roll_mean = raw.rolling(window).mean()
+        roll_std = raw.rolling(window).std().replace(0, np.nan)
+        normalized = ((raw - roll_mean) / roll_std).clip(-1.0, 1.0)
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_303_n(df, window=40, window_short=20):
+        ret = df['close'].pct_change(window)
+        rank_ret = ret.rolling(window).rank(pct=True)
+        short_ret = df['close'].pct_change()
+        mean_short_ret = short_ret.rolling(window_short).mean()
+        sign_short_ret = np.sign(mean_short_ret.diff(window))
+        corr = df['close'].rolling(window).corr(df.get('matchingVolume', df.get('volume', 1)))
+        rank_corr = corr.rolling(window).rank(pct=True)
+        vol_std = df.get('matchingVolume', df.get('volume', 1)).rolling(window_short).std()
+        inv_vol = 1.0 / (vol_std + 1.0)
+        raw = rank_ret * sign_short_ret * rank_corr * inv_vol
+        normalized = np.sign(raw)
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_303_r(df, window=50, window_short=3, p1=0.05, p2=120):
+        ret = df['close'].pct_change(window)
+        rank_ret = ret.rolling(window).rank(pct=True)
+        short_ret = df['close'].pct_change()
+        mean_short_ret = short_ret.rolling(window_short).mean()
+        sign_short_ret = np.sign(mean_short_ret.diff(window))
+        corr = df['close'].rolling(window).corr(df.get('matchingVolume', df.get('volume', 1)))
+        rank_corr = corr.rolling(window).rank(pct=True)
+        vol_std = df.get('matchingVolume', df.get('volume', 1)).rolling(window_short).std()
+        inv_vol = 1.0 / (vol_std + 1.0)
+        raw = rank_ret * sign_short_ret * rank_corr * inv_vol
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1.0 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        numerator = (winsorized - low) / (high - low + 1e-9)
+        adjusted = numerator * 1.98 - 0.99
+        adjusted = adjusted.clip(-0.9999, 0.9999)
+        normalized = np.arctanh(adjusted)
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_304_rank(df, window=65):
+        sub_window = 5
+        return_ = df['close'].pct_change()
+        ts_sum_20 = return_.rolling(window).sum()
+        ts_sum_5 = return_.rolling(sub_window).sum()
+        delta_ts_sum_5 = ts_sum_5.diff(1)
+        raw = np.sign(ts_sum_20) * delta_ts_sum_5
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_304_tanh(df, window=100):
+        sub_window = 5
+        return_ = df['close'].pct_change()
+        ts_sum_20 = return_.rolling(window).sum()
+        ts_sum_5 = return_.rolling(sub_window).sum()
+        delta_ts_sum_5 = ts_sum_5.diff(1)
+        raw = np.sign(ts_sum_20) * delta_ts_sum_5
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_304_zscore(df, window=100):
+        sub_window = 5
+        return_ = df['close'].pct_change()
+        ts_sum_20 = return_.rolling(window).sum()
+        ts_sum_5 = return_.rolling(sub_window).sum()
+        delta_ts_sum_5 = ts_sum_5.diff(1)
+        raw = np.sign(ts_sum_20) * delta_ts_sum_5
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_304_sign(df, window=5):
+        sub_window = 5
+        return_ = df['close'].pct_change()
+        ts_sum_20 = return_.rolling(window).sum()
+        ts_sum_5 = return_.rolling(sub_window).sum()
+        delta_ts_sum_5 = ts_sum_5.diff(1)
+        raw = np.sign(ts_sum_20) * delta_ts_sum_5
+        normalized = np.sign(raw)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_304_wf(df, window=100, sub_window=20):
+        p1 = 0.05
+        p2 = sub_window
+        return_ = df['close'].pct_change()
+        ts_sum_20 = return_.rolling(window).sum()
+        ts_sum_5 = return_.rolling(5).sum()
+        delta_ts_sum_5 = ts_sum_5.diff(1)
+        raw = np.sign(ts_sum_20) * delta_ts_sum_5
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_305_rank(df, window=40):
+        # Normalize: Rolling Rank
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        hl = df['high'] - df['low']
+        vol_pct = vol.pct_change(1).fillna(0)
+        raw = hl.rolling(window).corr(vol_pct)
+        raw = raw.replace([-np.inf, np.inf], np.nan).fillna(0)
+        norm = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_305_tanh(df, window=35):
+        # Normalize: Dynamic Tanh
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        hl = df['high'] - df['low']
+        vol_pct = vol.pct_change(1).fillna(0)
+        raw = hl.rolling(window).corr(vol_pct)
+        raw = raw.replace([-np.inf, np.inf], np.nan).fillna(0)
+        norm = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_305_zscore(df, window=40):
+        # Normalize: Rolling Z-Score Clip
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        hl = df['high'] - df['low']
+        vol_pct = vol.pct_change(1).fillna(0)
+        raw = hl.rolling(window).corr(vol_pct)
+        raw = raw.replace([-np.inf, np.inf], np.nan).fillna(0)
+        mean_ = raw.rolling(window).mean()
+        std_ = raw.rolling(window).std().replace(0, np.nan)
+        norm = ((raw - mean_) / std_).clip(-1, 1)
+        return -norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_305_sign(df, window=10):
+        # Normalize: Sign Binary Soft
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        hl = df['high'] - df['low']
+        vol_pct = vol.pct_change(1).fillna(0)
+        raw = hl.rolling(window).corr(vol_pct)
+        raw = raw.replace([-np.inf, np.inf], np.nan).fillna(0)
+        norm = np.sign(raw)
+        return -pd.Series(norm, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_305_wf(df, window=80, p1=0.1):
+        # Normalize: Winsorized Fisher
+        vol = df.get('matchingVolume', df.get('volume', 1))
+        hl = df['high'] - df['low']
+        vol_pct = vol.pct_change(1).fillna(0)
+        raw = hl.rolling(window).corr(vol_pct)
+        raw = raw.replace([-np.inf, np.inf], np.nan).fillna(0)
+        p2 = window
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        factor = (winsorized - low) / (high - low + 1e-9) * 1.98 - 0.99
+        factor = factor.clip(-0.99, 0.99)
+        norm = np.arctanh(factor)
+        norm = norm / 3.0  # scale to approx [-1,1]
+        return norm.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_306_rank(df, window=15):
+        ret = df['close'].pct_change()
+        volume = df['matchingVolume']
+        raw = ret.rolling(window).sum() / (volume.rolling(window).std() + 1e-8)
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_306_tanh(df, window=15):
+        ret = df['close'].pct_change()
+        volume = df['matchingVolume']
+        raw = ret.rolling(window).sum() / (volume.rolling(window).std() + 1e-8)
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_306_zscore(df, window=25):
+        ret = df['close'].pct_change()
+        volume = df['matchingVolume']
+        raw = ret.rolling(window).sum() / (volume.rolling(window).std() + 1e-8)
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_306_sign(df, window=30):
+        ret = df['close'].pct_change()
+        volume = df['matchingVolume']
+        raw = ret.rolling(window).sum() / (volume.rolling(window).std() + 1e-8)
+        normalized = np.sign(raw)
+        return pd.Series(normalized, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_306_wf(df, window=40, p1=0.3):
+        p2 = window
+        ret = df['close'].pct_change()
+        volume = df['matchingVolume']
+        raw = ret.rolling(window).sum() / (volume.rolling(window).std() + 1e-8)
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_307_k(df, window=60):
+        ret = df['close'].pct_change().fillna(0)
+        ts_mean = ret.rolling(window=5).mean()
+        delta_ts_mean = ts_mean.diff().fillna(0)
+        ts_std = ret.rolling(window=20).std().replace(0, np.nan).fillna(1e-8)
+        inv_ts_std = 1.0 / (ts_std + 1e-8)
+        raw = delta_ts_mean * inv_ts_std
+        # Normalize A: Rolling Rank
+        param = window if window > 0 else 5
+        normalized = (raw.rolling(param).rank(pct=True) * 2.0) - 1.0
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_307_h(df, window=5):
+        ret = df['close'].pct_change().fillna(0)
+        ts_mean = ret.rolling(window=5).mean()
+        delta_ts_mean = ts_mean.diff().fillna(0)
+        ts_std = ret.rolling(window=20).std().replace(0, np.nan).fillna(1e-8)
+        inv_ts_std = 1.0 / (ts_std + 1e-8)
+        raw = delta_ts_mean * inv_ts_std
+        # Normalize B: Dynamic Tanh
+        denom = raw.rolling(window).std().replace(0, np.nan).fillna(1e-8)
+        normalized = np.tanh(raw / denom)
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_307_e(df, window=90):
+        ret = df['close'].pct_change().fillna(0)
+        ts_mean = ret.rolling(window=5).mean()
+        delta_ts_mean = ts_mean.diff().fillna(0)
+        ts_std = ret.rolling(window=20).std().replace(0, np.nan).fillna(1e-8)
+        inv_ts_std = 1.0 / (ts_std + 1e-8)
+        raw = delta_ts_mean * inv_ts_std
+        # Normalize C: Rolling Z-Score
+        mean_raw = raw.rolling(window).mean()
+        std_raw = raw.rolling(window).std().replace(0, np.nan).fillna(1e-8)
+        normalized = ((raw - mean_raw) / std_raw).clip(-1.0, 1.0)
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_307_t(df):
+        ret = df['close'].pct_change().fillna(0)
+        ts_mean = ret.rolling(window=5).mean()
+        delta_ts_mean = ts_mean.diff().fillna(0)
+        ts_std = ret.rolling(window=20).std().replace(0, np.nan).fillna(1e-8)
+        inv_ts_std = 1.0 / (ts_std + 1e-8)
+        raw = delta_ts_mean * inv_ts_std
+        # Normalize D: Sign/Binary Soft
+        normalized = np.sign(raw)
+        return pd.Series(normalized, index=df.index).fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_307_r(df, window=30, winsor_quantile=0.1):
+        ret = df['close'].pct_change().fillna(0)
+        ts_mean = ret.rolling(window=5).mean()
+        delta_ts_mean = ts_mean.diff().fillna(0)
+        ts_std = ret.rolling(window=20).std().replace(0, np.nan).fillna(1e-8)
+        inv_ts_std = 1.0 / (ts_std + 1e-8)
+        raw = delta_ts_mean * inv_ts_std
+        # Winsorized Fisher Transform
+        p1 = winsor_quantile
+        p2 = window if window > 0 else 5
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1.0 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        scaled = ((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99
+        # Fisher Transform
+        normalized = np.arctanh(np.clip(scaled, -0.99, 0.99))
+        return normalized.fillna(0.0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_308_rank(df, window=100):
+        ret = df['close'].pct_change().fillna(0)
+        sum60 = ret.rolling(window).sum()
+        mean10 = ret.rolling(10).mean()
+        raw = np.sign(sum60 - mean10) * sum60
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_308_tanh(df, window=75):
+        ret = df['close'].pct_change().fillna(0)
+        sum60 = ret.rolling(window).sum()
+        mean10 = ret.rolling(10).mean()
+        raw = np.sign(sum60 - mean10) * sum60
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_308_zscore(df, window=100):
+        ret = df['close'].pct_change().fillna(0)
+        sum60 = ret.rolling(window).sum()
+        mean10 = ret.rolling(10).mean()
+        raw = np.sign(sum60 - mean10) * sum60
+        roll_mean = raw.rolling(window).mean()
+        roll_std = raw.rolling(window).std().replace(0, np.nan)
+        normalized = ((raw - roll_mean) / roll_std).clip(-1, 1)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_308_sign(df, window=50):
+        ret = df['close'].pct_change().fillna(0)
+        sum60 = ret.rolling(window).sum()
+        mean10 = ret.rolling(10).mean()
+        raw = np.sign(sum60 - mean10) * sum60
+        normalized = np.sign(raw)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_308_wf(df, window=100, quantile=0.1):
+        ret = df['close'].pct_change().fillna(0)
+        sum60 = ret.rolling(window).sum()
+        mean10 = ret.rolling(10).mean()
+        raw = np.sign(sum60 - mean10) * sum60
+        low = raw.rolling(window).quantile(quantile)
+        high = raw.rolling(window).quantile(1 - quantile)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_309_k(df, window=90):
+        high_low = df['high'] - df['low']
+        volume = df['matchingVolume']
+        # Tính correlation giữa high-low và volume qua rolling 20
+        corr_hl_vol = high_low.rolling(window).corr(volume)
+        # Tính mean của (high-low)/volume qua rolling 10, dùng epsilon để tránh chia 0
+        mean_ratio = (high_low / (volume + 1e-8)).rolling(10).mean()
+        raw = corr_hl_vol * mean_ratio
+        # Rolling Rank chuẩn hóa
+        normalized = (raw.rolling(2*window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_309_h(df, window=5):
+        high_low = df['high'] - df['low']
+        volume = df['matchingVolume']
+        corr_hl_vol = high_low.rolling(window).corr(volume)
+        mean_ratio = (high_low / (volume + 1e-8)).rolling(10).mean()
+        raw = corr_hl_vol * mean_ratio
+        std = raw.rolling(2*window).std().replace(0, np.nan)
+        normalized = np.tanh(raw / std)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_309_e(df, window=45):
+        high_low = df['high'] - df['low']
+        volume = df['matchingVolume']
+        corr_hl_vol = high_low.rolling(window).corr(volume)
+        mean_ratio = (high_low / (volume + 1e-8)).rolling(10).mean()
+        raw = corr_hl_vol * mean_ratio
+        rolling_mean = raw.rolling(2*window).mean()
+        rolling_std = raw.rolling(2*window).std().replace(0, np.nan)
+        normalized = ((raw - rolling_mean) / rolling_std).clip(-1, 1)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_309_y(df, window=5):
+        high_low = df['high'] - df['low']
+        volume = df['matchingVolume']
+        corr_hl_vol = high_low.rolling(window).corr(volume)
+        mean_ratio = (high_low / (volume + 1e-8)).rolling(10).mean()
+        raw = corr_hl_vol * mean_ratio
+        normalized = pd.Series(np.sign(raw), index=df.index)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_309_r(df, window=65):
+        high_low = df['high'] - df['low']
+        volume = df['matchingVolume']
+        corr_hl_vol = high_low.rolling(window).corr(volume)
+        mean_ratio = (high_low / (volume + 1e-8)).rolling(10).mean()
+        raw = corr_hl_vol * mean_ratio
+        p1 = 0.05
+        p2 = 2*window
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_310_rank(df, window=80):
+        volume = df['matchingVolume'].fillna(method='ffill').fillna(0)
+        high = df['high']
+        low = df['low']
+        spread = high - low
+        volume_zscore = (volume - volume.rolling(window=window).mean()) / volume.rolling(window=window).std().replace(0, np.nan)
+        denom = volume.rolling(window=10).std().replace(0, np.nan) + 1
+        spread_norm = spread / denom
+        corr = volume_zscore.rolling(window=window).corr(spread_norm)
+        raw = corr.fillna(0)
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_310_tanh(df, window=5):
+        volume = df['matchingVolume'].fillna(method='ffill').fillna(0)
+        high = df['high']
+        low = df['low']
+        spread = high - low
+        volume_zscore = (volume - volume.rolling(window=window).mean()) / volume.rolling(window=window).std().replace(0, np.nan)
+        denom = volume.rolling(window=10).std().replace(0, np.nan) + 1
+        spread_norm = spread / denom
+        corr = volume_zscore.rolling(window=window).corr(spread_norm)
+        raw = corr.fillna(0)
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_310_zscore(df, window=45):
+        volume = df['matchingVolume'].fillna(method='ffill').fillna(0)
+        high = df['high']
+        low = df['low']
+        spread = high - low
+        volume_zscore = (volume - volume.rolling(window=window).mean()) / volume.rolling(window=window).std().replace(0, np.nan)
+        denom = volume.rolling(window=10).std().replace(0, np.nan) + 1
+        spread_norm = spread / denom
+        corr = volume_zscore.rolling(window=window).corr(spread_norm)
+        raw = corr.fillna(0)
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_310_sign(df, window=65):
+        volume = df['matchingVolume'].fillna(method='ffill').fillna(0)
+        high = df['high']
+        low = df['low']
+        spread = high - low
+        volume_zscore = (volume - volume.rolling(window=window).mean()) / volume.rolling(window=window).std().replace(0, np.nan)
+        denom = volume.rolling(window=10).std().replace(0, np.nan) + 1
+        spread_norm = spread / denom
+        corr = volume_zscore.rolling(window=window).corr(spread_norm)
+        raw = corr.fillna(0)
+        normalized = np.sign(raw)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_310_wf(df, p1=0.9, p2=90):
+        window = 10
+        volume = df['matchingVolume'].fillna(method='ffill').fillna(0)
+        high = df['high']
+        low = df['low']
+        spread = high - low
+        volume_zscore = (volume - volume.rolling(window=window).mean()) / volume.rolling(window=window).std().replace(0, np.nan)
+        denom = volume.rolling(window=10).std().replace(0, np.nan) + 1
+        spread_norm = spread / denom
+        corr = volume_zscore.rolling(window=window).corr(spread_norm)
+        raw = corr.fillna(0)
+        low_q = raw.rolling(p2).quantile(p1)
+        high_q = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low_q, upper=high_q, axis=0)
+        normalized = np.arctanh(((winsorized - low_q) / (high_q - low_q + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_311_rank(df, window=5):
+        # C: Rolling Z-Score/Clip
+        vol_delta = df['matchingVolume'].diff(1)
+        vol_mean = df['matchingVolume'].rolling(window).mean()
+        raw = (vol_delta / (vol_mean + 1)) * np.sign(df['close'].rolling(window).std())
+        # Rolling Z-Score chuẩn hóa
+        rolling_mean = raw.rolling(window).mean()
+        rolling_std = raw.rolling(window).std()
+        normalized = ((raw - rolling_mean) / rolling_std.replace(0, np.nan)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_311_tanh(df, window=5):
+        # B: Dynamic Tanh giữ magnitude
+        vol_delta = df['matchingVolume'].diff(1)
+        vol_mean = df['matchingVolume'].rolling(window).mean()
+        raw = (vol_delta / (vol_mean + 1)) * np.sign(df['close'].rolling(window).std())
+        rolling_std = raw.rolling(window).std().replace(0, np.nan)
+        return np.tanh(raw / rolling_std).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_311_sign(df, window=80):
+        # D: Sign/Binary Soft
+        vol_delta = df['matchingVolume'].diff(1)
+        vol_mean = df['matchingVolume'].rolling(window).mean()
+        raw = (vol_delta / (vol_mean + 1)) * np.sign(df['close'].rolling(window).std())
+        return pd.Series(np.sign(raw), index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_311_zscore(df, window=5):
+        delta_vol = df['matchingVolume'].diff(1)
+        mean_vol = df['matchingVolume'].rolling(window).mean()
+        raw = (delta_vol / (mean_vol + 1)) * np.sign(df['close'].rolling(window).std())
+        signal = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std()).clip(-1, 1)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_311_wf(df, window=60, quantile_param=0.3):
+        delta_vol = df['matchingVolume'].diff(1)
+        mean_vol = df['matchingVolume'].rolling(window).mean()
+        raw = (delta_vol / (mean_vol + 1)) * np.sign(df['close'].rolling(window).std())
+        low = raw.rolling(window).quantile(quantile_param)
+        high = raw.rolling(window).quantile(1 - quantile_param)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_312_rank(df, window=90):
+        ret = df['close'].pct_change().fillna(0)
+        vol = np.log1p(df.get('matchingVolume', df.get('volume', 1)))
+        vol_std = vol.rolling(5).std().replace(0, np.nan).ffill().fillna(0)
+        corr = ret.rolling(window).corr(vol_std)
+        rank_corr = corr.rolling(window).rank(pct=True)
+        ret_std = ret.rolling(window).std().replace(0, np.nan).ffill().fillna(0)
+        raw = rank_corr * ret_std
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_312_tanh(df, window=85):
+        ret = df['close'].pct_change().fillna(0)
+        vol = np.log1p(df.get('matchingVolume', df.get('volume', 1)))
+        vol_std = vol.rolling(5).std().replace(0, np.nan).ffill().fillna(0)
+        corr = ret.rolling(window).corr(vol_std)
+        rank_corr = corr.rolling(window).rank(pct=True)
+        ret_std = ret.rolling(window).std().replace(0, np.nan).ffill().fillna(0)
+        raw = rank_corr * ret_std
+        signal = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan).ffill().fillna(1))
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_312_zscore(df, window=90):
+        ret = df['close'].pct_change().fillna(0)
+        vol = np.log1p(df.get('matchingVolume', df.get('volume', 1)))
+        vol_std = vol.rolling(5).std().replace(0, np.nan).ffill().fillna(0)
+        corr = ret.rolling(window).corr(vol_std)
+        rank_corr = corr.rolling(window).rank(pct=True)
+        ret_std = ret.rolling(window).std().replace(0, np.nan).ffill().fillna(0)
+        raw = rank_corr * ret_std
+        mean_raw = raw.rolling(window).mean()
+        std_raw = raw.rolling(window).std().replace(0, np.nan).ffill().fillna(1)
+        signal = ((raw - mean_raw) / std_raw).clip(-1, 1)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_312_sign(df, window=90):
+        ret = df['close'].pct_change().fillna(0)
+        vol = np.log1p(df.get('matchingVolume', df.get('volume', 1)))
+        vol_std = vol.rolling(5).std().replace(0, np.nan).ffill().fillna(0)
+        corr = ret.rolling(window).corr(vol_std)
+        rank_corr = corr.rolling(window).rank(pct=True)
+        ret_std = ret.rolling(window).std().replace(0, np.nan).ffill().fillna(0)
+        raw = rank_corr * ret_std
+        signal = np.sign(raw)
+        return pd.Series(signal, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_312_wf(df, window=30):
+        ret = df['close'].pct_change().fillna(0)
+        vol = np.log1p(df.get('matchingVolume', df.get('volume', 1)))
+        vol_std = vol.rolling(5).std().replace(0, np.nan).ffill().fillna(0)
+        corr = ret.rolling(window).corr(vol_std)
+        rank_corr = corr.rolling(window).rank(pct=True)
+        ret_std = ret.rolling(window).std().replace(0, np.nan).ffill().fillna(0)
+        raw = rank_corr * ret_std
+        p1 = 0.05
+        low = raw.rolling(window).quantile(p1)
+        high = raw.rolling(window).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        signal = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_313_rank(df, window=45):
+        # 1. Tính toán biểu thức alpha gốc
+        epsilon = 1e-8
+        hl_range = (df['high'] - df['low']) / (df['close'] + epsilon)
+        volume_delta = df.get('matchingVolume', df.get('volume', 1))
+        volume_delta = volume_delta.diff() / (volume_delta + epsilon)
+        # Jitter để tránh zero variance
+        corr = hl_range.rolling(window).corr(volume_delta + np.random.randn(len(df)) * 1e-10)
+        # 2. Chuẩn hóa Rolling Rank (trường hợp A)
+        raw = corr.rolling(window).rank(pct=True) * 2 - 1
+        return -raw.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_313_tanh(df, window=100):
+        # 1. Tính toán biểu thức alpha gốc
+        epsilon = 1e-8
+        hl_range = (df['high'] - df['low']) / (df['close'] + epsilon)
+        volume_delta = df.get('matchingVolume', df.get('volume', 1))
+        volume_delta = volume_delta.diff() / (volume_delta + epsilon)
+        corr = hl_range.rolling(window).corr(volume_delta + np.random.randn(len(df)) * 1e-10)
+        # 2. Chuẩn hóa Dynamic Tanh
+        raw = np.tanh(corr / corr.rolling(window).std().replace(0, np.nan))
+        return -raw.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_313_zscore(df, window=75):
+        # 1. Tính toán biểu thức alpha gốc
+        epsilon = 1e-8
+        hl_range = (df['high'] - df['low']) / (df['close'] + epsilon)
+        volume_delta = df.get('matchingVolume', df.get('volume', 1))
+        volume_delta = volume_delta.diff() / (volume_delta + epsilon)
+        corr = hl_range.rolling(window).corr(volume_delta + np.random.randn(len(df)) * 1e-10)
+        # 2. Chuẩn hóa Rolling Z-Score/Clip
+        raw = ((corr - corr.rolling(window).mean()) / corr.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return raw.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_313_sign(df, window=90):
+        # 1. Tính toán biểu thức alpha gốc
+        epsilon = 1e-8
+        hl_range = (df['high'] - df['low']) / (df['close'] + epsilon)
+        volume_delta = df.get('matchingVolume', df.get('volume', 1))
+        volume_delta = volume_delta.diff() / (volume_delta + epsilon)
+        corr = hl_range.rolling(window).corr(volume_delta + np.random.randn(len(df)) * 1e-10)
+        # 2. Chuẩn hóa Sign/Binary Soft
+        raw = np.sign(corr).clip(-1, 1)
+        return -pd.Series(np.where(pd.isna(raw), 0, raw), index=df.index)
+
+    @staticmethod
+    def alpha_quanta_randomizer_313_wf(df, window=70, quantile=0.3):
+        # 1. Tính toán biểu thức alpha gốc
+        epsilon = 1e-8
+        hl_range = (df['high'] - df['low']) / (df['close'] + epsilon)
+        volume_delta = df.get('matchingVolume', df.get('volume', 1))
+        volume_delta = volume_delta.diff() / (volume_delta + epsilon)
+        corr = hl_range.rolling(window).corr(volume_delta + np.random.randn(len(df)) * 1e-10)
+        # 2. Chuẩn hóa Winsorized Fisher
+        low = corr.rolling(window).quantile(quantile)
+        high = corr.rolling(window).quantile(1 - quantile)
+        winsorized = corr.clip(lower=low, upper=high, axis=0)
+        denom = (high - low + epsilon)
+        normalized = np.arctanh(((winsorized - low) / denom) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_314_rank(df, window=30, rank_window=30):
+        ret = df['close'].pct_change()
+        mean_5 = ret.rolling(5).mean()
+        mean_60 = ret.rolling(window).mean()
+        std_60 = ret.rolling(window).std().replace(0, np.nan)
+        raw = np.sign(mean_5) * (mean_5 - mean_60) / (std_60 + 1e-8)
+        normalized = (raw.rolling(rank_window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0).clip(-1, 1)
+
+    @staticmethod
+    def alpha_quanta_randomizer_314_tanh(df, window=20, scale_factor=5):
+        ret = df['close'].pct_change()
+        mean_5 = ret.rolling(5).mean()
+        mean_60 = ret.rolling(window).mean()
+        std_60 = ret.rolling(window).std().replace(0, np.nan)
+        raw = np.sign(mean_5) * (mean_5 - mean_60) / (std_60 + 1e-8)
+        normalized = np.tanh(raw / raw.rolling(scale_factor).std().replace(0, np.nan))
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_314_zscore(df, window=30, zscore_window=20):
+        ret = df['close'].pct_change()
+        mean_5 = ret.rolling(5).mean()
+        mean_60 = ret.rolling(window).mean()
+        std_60 = ret.rolling(window).std().replace(0, np.nan)
+        raw = np.sign(mean_5) * (mean_5 - mean_60) / (std_60 + 1e-8)
+        roll_mean = raw.rolling(zscore_window).mean()
+        roll_std = raw.rolling(zscore_window).std().replace(0, np.nan)
+        normalized = ((raw - roll_mean) / roll_std).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_314_sign(df, window=20):
+        ret = df['close'].pct_change()
+        mean_5 = ret.rolling(5).mean()
+        mean_60 = ret.rolling(window).mean()
+        std_60 = ret.rolling(window).std().replace(0, np.nan)
+        raw = np.sign(mean_5) * (mean_5 - mean_60) / (std_60 + 1e-8)
+        normalized = np.sign(raw)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_314_wf(df, window=30, p1=0.1, p2=60):
+        ret = df['close'].pct_change()
+        mean_5 = ret.rolling(5).mean()
+        mean_60 = ret.rolling(window).mean()
+        std_60 = ret.rolling(window).std().replace(0, np.nan)
+        raw = np.sign(mean_5) * (mean_5 - mean_60) / (std_60 + 1e-8)
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0).clip(-1, 1)
+
+    @staticmethod
+    def alpha_quanta_randomizer_315_rank(df, window=25):
+        volume = df['matchingVolume']
+        close = df['close']
+        ret = close.pct_change()
+        log_vol = np.log1p(volume)
+        std_log_vol = log_vol.rolling(window).std()
+        std_ret = ret.rolling(window).std().replace(0, np.nan) + 1e-8
+        ratio1 = std_log_vol / std_ret
+        mean_vol = volume.rolling(window).mean()
+        mean_close = close.rolling(window).mean().replace(0, np.nan) + 1e-8
+        ratio2 = mean_vol / mean_close
+        raw = ratio1 * ratio2
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_315_tanh(df, window=35):
+        volume = df['matchingVolume']
+        close = df['close']
+        ret = close.pct_change()
+        log_vol = np.log1p(volume)
+        std_log_vol = log_vol.rolling(window).std()
+        std_ret = ret.rolling(window).std().replace(0, np.nan) + 1e-8
+        ratio1 = std_log_vol / std_ret
+        mean_vol = volume.rolling(window).mean()
+        mean_close = close.rolling(window).mean().replace(0, np.nan) + 1e-8
+        ratio2 = mean_vol / mean_close
+        raw = ratio1 * ratio2
+        signal = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_315_zscore(df, window=25):
+        volume = df['matchingVolume']
+        close = df['close']
+        ret = close.pct_change()
+        log_vol = np.log1p(volume)
+        std_log_vol = log_vol.rolling(window).std()
+        std_ret = ret.rolling(window).std().replace(0, np.nan) + 1e-8
+        ratio1 = std_log_vol / std_ret
+        mean_vol = volume.rolling(window).mean()
+        mean_close = close.rolling(window).mean().replace(0, np.nan) + 1e-8
+        ratio2 = mean_vol / mean_close
+        raw = ratio1 * ratio2
+        rolling_mean = raw.rolling(window).mean()
+        rolling_std = raw.rolling(window).std().replace(0, np.nan)
+        signal = ((raw - rolling_mean) / rolling_std).clip(-1, 1)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_315_sign(df, window=95):
+        volume = df['matchingVolume']
+        close = df['close']
+        ret = close.pct_change()
+        log_vol = np.log1p(volume)
+        std_log_vol = log_vol.rolling(window).std()
+        std_ret = ret.rolling(window).std().replace(0, np.nan) + 1e-8
+        ratio1 = std_log_vol / std_ret
+        mean_vol = volume.rolling(window).mean()
+        mean_close = close.rolling(window).mean().replace(0, np.nan) + 1e-8
+        ratio2 = mean_vol / mean_close
+        raw = ratio1 * ratio2
+        signal = np.sign(raw)
+        return pd.Series(signal, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_315_wf(df, window=50, winsor_quantile=0.1):
+        volume = df['matchingVolume']
+        close = df['close']
+        ret = close.pct_change()
+        log_vol = np.log1p(volume)
+        std_log_vol = log_vol.rolling(window).std()
+        std_ret = ret.rolling(window).std().replace(0, np.nan) + 1e-8
+        ratio1 = std_log_vol / std_ret
+        mean_vol = volume.rolling(window).mean()
+        mean_close = close.rolling(window).mean().replace(0, np.nan) + 1e-8
+        ratio2 = mean_vol / mean_close
+        raw = ratio1 * ratio2
+        low = raw.rolling(window).quantile(winsor_quantile)
+        high = raw.rolling(window).quantile(1 - winsor_quantile)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_316_rank(df, window=30):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        x = pd.Series(np.arange(len(df)), index=df.index)
+        cov = ret.rolling(window).cov(x)
+        var = x.rolling(window).var().replace(0, np.nan)
+        slope = cov / var
+        raw = slope
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_316_tanh(df, window=20):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        x = pd.Series(np.arange(len(df)), index=df.index)
+        cov = ret.rolling(window).cov(x)
+        var = x.rolling(window).var().replace(0, np.nan)
+        slope = cov / var
+        raw = slope
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_316_zscore(df, window=70):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        x = pd.Series(np.arange(len(df)), index=df.index)
+        cov = ret.rolling(window).cov(x)
+        var = x.rolling(window).var().replace(0, np.nan)
+        slope = cov / var
+        raw = slope
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_316_sign(df, window=65):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        x = pd.Series(np.arange(len(df)), index=df.index)
+        cov = ret.rolling(window).cov(x)
+        var = x.rolling(window).var().replace(0, np.nan)
+        slope = cov / var
+        raw = slope
+        normalized = pd.Series(np.sign(raw), index=df.index)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_316_wf(df, window=70, quantile=0.1):
+        close = df['close']
+        ret = close.pct_change().fillna(0)
+        x = pd.Series(np.arange(len(df)), index=df.index)
+        cov = ret.rolling(window).cov(x)
+        var = x.rolling(window).var().replace(0, np.nan)
+        slope = cov / var
+        raw = slope
+        p1 = quantile
+        p2 = window
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_317_rank(df, window=100):
+        high_low = df['high'] - df['low']
+        std_hl = high_low.rolling(window).std()
+        std_c = df['close'].rolling(window).std()
+        mean_hl = high_low.rolling(window).mean()
+        raw = std_hl / (std_c + mean_hl + 1e-8)
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return normalized.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_317_tanh(df, window=35):
+        high_low = df['high'] - df['low']
+        std_hl = high_low.rolling(window).std()
+        std_c = df['close'].rolling(window).std()
+        mean_hl = high_low.rolling(window).mean()
+        raw = std_hl / (std_c + mean_hl + 1e-8)
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -normalized.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_317_zscore(df, window=100):
+        high_low = df['high'] - df['low']
+        std_hl = high_low.rolling(window).std()
+        std_c = df['close'].rolling(window).std()
+        mean_hl = high_low.rolling(window).mean()
+        raw = std_hl / (std_c + mean_hl + 1e-8)
+        mean_raw = raw.rolling(window).mean()
+        std_raw = raw.rolling(window).std().replace(0, np.nan)
+        normalized = ((raw - mean_raw) / std_raw).clip(-1, 1)
+        return normalized.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_317_sign(df, window=100):
+        high_low = df['high'] - df['low']
+        std_hl = high_low.rolling(window).std()
+        std_c = df['close'].rolling(window).std()
+        mean_hl = high_low.rolling(window).mean()
+        raw = std_hl / (std_c + mean_hl + 1e-8)
+        normalized = np.sign(raw - raw.rolling(window).median())
+        return normalized.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_317_wf(df, window=100, p1=0.7):
+        high_low = df['high'] - df['low']
+        std_hl = high_low.rolling(window).std()
+        std_c = df['close'].rolling(window).std()
+        mean_hl = high_low.rolling(window).mean()
+        raw = std_hl / (std_c + mean_hl + 1e-8)
+        p2 = window
+        low_q = raw.rolling(p2).quantile(p1)
+        high_q = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low_q, upper=high_q, axis=0)
+        normalized = np.arctanh(((winsorized - low_q) / (high_q - low_q + 1e-9)) * 1.98 - 0.99)
+        return normalized.ffill().fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_318_rank(df, window=25):
+        log_vol = np.log1p(df['matchingVolume'])
+        raw = log_vol.rolling(window).mean() / (log_vol.rolling(window).std() + 1)
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_318_tanh(df, window=35):
+        log_vol = np.log1p(df['matchingVolume'])
+        raw = log_vol.rolling(window).mean() / (log_vol.rolling(window).std() + 1)
+        signal = np.tanh(raw / (raw.rolling(window).std() + 1e-9))
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_318_zscore(df, window=25):
+        log_vol = np.log1p(df['matchingVolume'])
+        raw = log_vol.rolling(window).mean() / (log_vol.rolling(window).std() + 1)
+        signal = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std()).clip(-1, 1)
+        return -signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_318_sign(df, window=60):
+        log_vol = np.log1p(df['matchingVolume'])
+        raw = log_vol.rolling(window).mean() / (log_vol.rolling(window).std() + 1)
+        signal = np.sign(raw)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_318_wf(df, window=50, p1=0.1):
+        log_vol = np.log1p(df['matchingVolume'])
+        raw = log_vol.rolling(window).mean() / (log_vol.rolling(window).std() + 1)
+        low = raw.rolling(window).quantile(p1)
+        high = raw.rolling(window).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high)
+        signal = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_319_c(df, window=70):
+        # Tính volume ratio so với mean 20 kỳ
+        vol_mean_20 = df['matchingVolume'].rolling(20).mean().replace(0, np.nan).ffill()
+        vol_ratio = df['matchingVolume'] / (vol_mean_20 + 1e-8)
+
+        # Tính return
+        ret = df['close'].pct_change()
+
+        # Tính x = vol_ratio - 1 (làm trễ 1? thực tế delay trong alpha là vol_ratio đã trừ 1?)
+        # Công thức gốc: TS_CORR(volume/(TS_MEAN(volume,20)+1e-8) - 1, DELAY(return,1), 5)
+        # Nghĩa là x = volume/mean(volume,20) - 1, y = return(q=1)
+        x = vol_ratio - 1
+        y = ret.shift(1)
+
+        # Tính rolling correlation 5 kỳ
+        x_mean = x.rolling(window).mean()
+        y_mean = y.rolling(window).mean()
+        cov = (x * y).rolling(window).mean() - x_mean * y_mean
+        x_var = (x ** 2).rolling(window).mean() - x_mean ** 2
+        y_var = (y ** 2).rolling(window).mean() - y_mean ** 2
+        denom = np.sqrt(x_var * y_var).replace(0, np.nan).ffill()
+        corr = cov / denom
+
+        # Tính sign của mean return -3 kỳ
+        ret_mean_3 = ret.rolling(3).mean()
+        sign_ret_mean = np.sign(ret_mean_3)
+
+        # Nhân với corr
+        raw = corr * sign_ret_mean
+
+        # Chuẩn hóa bằng Z-score rolling clip (phù hợp cho dạng correlation spread)
+        mean_raw = raw.rolling(20).mean()
+        std_raw = raw.rolling(20).std().replace(0, np.nan).ffill()
+        normalized = ((raw - mean_raw) / std_raw).clip(-1, 1)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_319_d(df, window=75):
+        # Tính volume ratio so với mean 20 kỳ
+        vol_mean_20 = df['matchingVolume'].rolling(20).mean().replace(0, np.nan).ffill()
+        vol_ratio = df['matchingVolume'] / (vol_mean_20 + 1e-8)
+
+        # Tính return
+        ret = df['close'].pct_change()
+
+        # Tính x = vol_ratio - 1
+        x = vol_ratio - 1
+        y = ret.shift(1)
+
+        # Tính rolling correlation 5 kỳ
+        x_mean = x.rolling(window).mean()
+        y_mean = y.rolling(window).mean()
+        cov = (x * y).rolling(window).mean() - x_mean * y_mean
+        x_var = (x ** 2).rolling(window).mean() - x_mean ** 2
+        y_var = (y ** 2).rolling(window).mean() - y_mean ** 2
+        denom = np.sqrt(x_var * y_var).replace(0, np.nan).ffill()
+        corr = cov / denom
+
+        # Tính sign của mean return -3 kỳ
+        ret_mean_3 = ret.rolling(3).mean()
+        sign_ret_mean = np.sign(ret_mean_3)
+
+        # Nhân với corr
+        raw = corr * sign_ret_mean
+
+        # Chuẩn hóa dạng Sign/Binary Soft
+        normalized = np.sign(raw)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_319_a(df, window_rank=10, window=40):
+        # Tính volume ratio so với mean 20 kỳ
+        vol_mean_20 = df['matchingVolume'].rolling(20).mean().replace(0, np.nan).ffill()
+        vol_ratio = df['matchingVolume'] / (vol_mean_20 + 1e-8)
+
+        # Tính return
+        ret = df['close'].pct_change()
+
+        # Tính x = vol_ratio - 1
+        x = vol_ratio - 1
+        y = ret.shift(1)
+
+        # Tính rolling correlation 5 kỳ
+        x_mean = x.rolling(window).mean()
+        y_mean = y.rolling(window).mean()
+        cov = (x * y).rolling(window).mean() - x_mean * y_mean
+        x_var = (x ** 2).rolling(window).mean() - x_mean ** 2
+        y_var = (y ** 2).rolling(window).mean() - y_mean ** 2
+        denom = np.sqrt(x_var * y_var).replace(0, np.nan).ffill()
+        corr = cov / denom
+
+        # Tính sign của mean return -3 kỳ
+        ret_mean_3 = ret.rolling(3).mean()
+        sign_ret_mean = np.sign(ret_mean_3)
+
+        # Nhân với corr
+        raw = corr * sign_ret_mean
+
+        # Chuẩn hóa bằng Rolling Rank: loại bỏ nhiễu/outliers
+        normalized = (raw.rolling(window_rank).rank(pct=True) * 2) - 1
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_319_b(df, window=75):
+        # Tính volume ratio so với mean 20 kỳ
+        vol_mean_20 = df['matchingVolume'].rolling(20).mean().replace(0, np.nan).ffill()
+        vol_ratio = df['matchingVolume'] / (vol_mean_20 + 1e-8)
+
+        # Tính return
+        ret = df['close'].pct_change()
+
+        # Tính x = vol_ratio - 1
+        x = vol_ratio - 1
+        y = ret.shift(1)
+
+        # Tính rolling correlation 5 kỳ
+        x_mean = x.rolling(window).mean()
+        y_mean = y.rolling(window).mean()
+        cov = (x * y).rolling(window).mean() - x_mean * y_mean
+        x_var = (x ** 2).rolling(window).mean() - x_mean ** 2
+        y_var = (y ** 2).rolling(window).mean() - y_mean ** 2
+        denom = np.sqrt(x_var * y_var).replace(0, np.nan).ffill()
+        corr = cov / denom
+
+        # Tính sign của mean return -3 kỳ
+        ret_mean_3 = ret.rolling(3).mean()
+        sign_ret_mean = np.sign(ret_mean_3)
+
+        # Nhân với corr
+        raw = corr * sign_ret_mean
+
+        # Chuẩn hóa Dynamic Tanh: giữ lại cường độ
+        std_raw = raw.rolling(20).std().replace(0, np.nan).ffill()
+        normalized = np.tanh(raw / std_raw)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_319_e(df, p1=0.7, p2=50):
+        # Tính volume ratio so với mean 20 kỳ
+        vol_mean_20 = df['matchingVolume'].rolling(20).mean().replace(0, np.nan).ffill()
+        vol_ratio = df['matchingVolume'] / (vol_mean_20 + 1e-8)
+
+        # Tính return
+        ret = df['close'].pct_change()
+
+        # Tính x = vol_ratio - 1
+        x = vol_ratio - 1
+        y = ret.shift(1)
+
+        # Tính rolling correlation 5 kỳ - hardcode window=5
+        window = 5
+        x_mean = x.rolling(window).mean()
+        y_mean = y.rolling(window).mean()
+        cov = (x * y).rolling(window).mean() - x_mean * y_mean
+        x_var = (x ** 2).rolling(window).mean() - x_mean ** 2
+        y_var = (y ** 2).rolling(window).mean() - y_mean ** 2
+        denom = np.sqrt(x_var * y_var).replace(0, np.nan).ffill()
+        corr = cov / denom
+
+        # Tính sign của mean return 3 kỳ
+        ret_mean_3 = ret.rolling(3).mean()
+        sign_ret_mean = np.sign(ret_mean_3)
+
+        # Nhân với corr
+        raw = corr * sign_ret_mean
+
+        # Chuẩn hóa Winsorized Fisher: xử lý heavy tails
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized
+
+    @staticmethod
+    def alpha_quanta_randomizer_320_k(df, window=100):
+        raw = df['close'].rolling(10).corr(df.get('matchingVolume', df.get('volume', df['close']))).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        raw = raw - pd.Series(np.sign(ret.rolling(5).mean().fillna(0)), index=df.index) * np.abs(df['close'].diff(1) / (df['close'] + 1e-8))
+        result = (raw.rolling(window).rank(pct=True).fillna(0) * 2) - 1
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_320_h(df, window=65):
+        raw = df['close'].rolling(10).corr(df.get('matchingVolume', df.get('volume', df['close']))).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        raw = raw - pd.Series(np.sign(ret.rolling(5).mean().fillna(0)), index=df.index) * np.abs(df['close'].diff(1) / (df['close'] + 1e-8))
+        std = raw.rolling(window).std().replace(0, np.nan).fillna(1e-8)
+        result = np.tanh(raw / std)
+        return result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_320_e(df, window=100):
+        raw = df['close'].rolling(10).corr(df.get('matchingVolume', df.get('volume', df['close']))).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        raw = raw - pd.Series(np.sign(ret.rolling(5).mean().fillna(0)), index=df.index) * np.abs(df['close'].diff(1) / (df['close'] + 1e-8))
+        mean = raw.rolling(window).mean().fillna(0)
+        std = raw.rolling(window).std().replace(0, np.nan).fillna(1)
+        result = ((raw - mean) / std).clip(-1, 1)
+        return -result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_320_n(df):
+        raw = df['close'].rolling(10).corr(df.get('matchingVolume', df.get('volume', df['close']))).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        raw = raw - pd.Series(np.sign(ret.rolling(5).mean().fillna(0)), index=df.index) * np.abs(df['close'].diff(1) / (df['close'] + 1e-8))
+        result = pd.Series(np.sign(raw), index=df.index)
+        return result.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_320_r(df, p1=0.3, p2=30):
+        raw = df['close'].rolling(10).corr(df.get('matchingVolume', df.get('volume', df['close']))).fillna(0)
+        ret = df['close'].pct_change().fillna(0)
+        raw = raw - pd.Series(np.sign(ret.rolling(5).mean().fillna(0)), index=df.index) * np.abs(df['close'].diff(1) / (df['close'] + 1e-8))
+        low = raw.rolling(p2).quantile(p1).fillna(method='ffill').fillna(raw.min())
+        high = raw.rolling(p2).quantile(1 - p1).fillna(method='ffill').fillna(raw.max())
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_321_rank(df, window=25):
+        data = df.copy()
+        high_low = data['high'] - data['low']
+        mean_hl = high_low.rolling(window, min_periods=1).mean()
+        raw_1 = high_low / (mean_hl + 1e-8)
+        ret = data['close'].pct_change()
+        std_ret = ret.rolling(5, min_periods=1).std()
+        raw_2 = raw_1 / (std_ret + 1e-8)
+        mean_ret = ret.rolling(3, min_periods=1).mean()
+        raw = raw_2 * mean_ret
+        raw = raw.fillna(0).replace([np.inf, -np.inf], 0)
+        signal = (raw.rolling(window, min_periods=1).rank(pct=True) * 2) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_321_tanh(df, window=15):
+        data = df.copy()
+        high_low = data['high'] - data['low']
+        mean_hl = high_low.rolling(window, min_periods=1).mean()
+        raw_1 = high_low / (mean_hl + 1e-8)
+        ret = data['close'].pct_change()
+        std_ret = ret.rolling(5, min_periods=1).std()
+        raw_2 = raw_1 / (std_ret + 1e-8)
+        mean_ret = ret.rolling(3, min_periods=1).mean()
+        raw = raw_2 * mean_ret
+        raw = raw.fillna(0).replace([np.inf, -np.inf], 0)
+        signal = np.tanh(raw / (raw.rolling(window, min_periods=1).std() + 1e-8))
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_321_zscore(df, window=25):
+        data = df.copy()
+        high_low = data['high'] - data['low']
+        mean_hl = high_low.rolling(window, min_periods=1).mean()
+        raw_1 = high_low / (mean_hl + 1e-8)
+        ret = data['close'].pct_change()
+        std_ret = ret.rolling(5, min_periods=1).std()
+        raw_2 = raw_1 / (std_ret + 1e-8)
+        mean_ret = ret.rolling(3, min_periods=1).mean()
+        raw = raw_2 * mean_ret
+        raw = raw.fillna(0).replace([np.inf, -np.inf], 0)
+        rolling_mean = raw.rolling(window, min_periods=1).mean()
+        rolling_std = raw.rolling(window, min_periods=1).std()
+        signal = ((raw - rolling_mean) / (rolling_std + 1e-8)).clip(-1, 1)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_321_sign(df, window=65):
+        data = df.copy()
+        high_low = data['high'] - data['low']
+        mean_hl = high_low.rolling(window, min_periods=1).mean()
+        raw_1 = high_low / (mean_hl + 1e-8)
+        ret = data['close'].pct_change()
+        std_ret = ret.rolling(5, min_periods=1).std()
+        raw_2 = raw_1 / (std_ret + 1e-8)
+        mean_ret = ret.rolling(3, min_periods=1).mean()
+        raw = raw_2 * mean_ret
+        raw = raw.fillna(0).replace([np.inf, -np.inf], 0)
+        signal = np.sign(raw)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_321_wf(df, window=10, quantile=0.1):
+        data = df.copy()
+        high_low = data['high'] - data['low']
+        mean_hl = high_low.rolling(window, min_periods=1).mean()
+        raw_1 = high_low / (mean_hl + 1e-8)
+        ret = data['close'].pct_change()
+        std_ret = ret.rolling(5, min_periods=1).std()
+        raw_2 = raw_1 / (std_ret + 1e-8)
+        mean_ret = ret.rolling(3, min_periods=1).mean()
+        raw = raw_2 * mean_ret
+        raw = raw.fillna(0).replace([np.inf, -np.inf], 0)
+        p2 = window
+        p1 = quantile
+        low = raw.rolling(p2, min_periods=1).quantile(p1)
+        high = raw.rolling(p2, min_periods=1).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        signal = normalized.fillna(0).replace([np.inf, -np.inf], 0)
+        return signal
+
+    @staticmethod
+    def alpha_quanta_randomizer_322_k(df, window=40, sub_window=30):
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = df['close'].pct_change()
+        zscore_vol = (volume - volume.rolling(window).mean()) / volume.rolling(window).std()
+        sma_ret = returns.rolling(sub_window).mean()
+        sign_ret = np.sign(sma_ret)
+        raw = zscore_vol * sign_ret
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_322_h(df, window=5, sub_window=60):
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = df['close'].pct_change()
+        zscore_vol = (volume - volume.rolling(window).mean()) / volume.rolling(window).std()
+        sma_ret = returns.rolling(sub_window).mean()
+        sign_ret = np.sign(sma_ret)
+        raw = zscore_vol * sign_ret
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_322_e(df, window=20, sub_window=60):
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = df['close'].pct_change()
+        zscore_vol = (volume - volume.rolling(window).mean()) / volume.rolling(window).std()
+        sma_ret = returns.rolling(sub_window).mean()
+        sign_ret = np.sign(sma_ret)
+        raw = zscore_vol * sign_ret
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std()).clip(-1, 1)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_322_n(df, window=30, sub_window=50):
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = df['close'].pct_change()
+        zscore_vol = (volume - volume.rolling(window).mean()) / volume.rolling(window).std()
+        sma_ret = returns.rolling(sub_window).mean()
+        sign_ret = np.sign(sma_ret)
+        raw = zscore_vol * sign_ret
+        normalized = np.sign(raw)
+        return -pd.Series(normalized, index=df.index).fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_322_r(df, window=5, sub_window=60, p1=0.05, p2=20):
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = df['close'].pct_change()
+        zscore_vol = (volume - volume.rolling(window).mean()) / volume.rolling(window).std()
+        sma_ret = returns.rolling(sub_window).mean()
+        sign_ret = np.sign(sma_ret)
+        raw = zscore_vol * sign_ret
+        low = raw.rolling(p2).quantile(p1)
+        high = raw.rolling(p2).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_323_rank(df, window=20):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = close.pct_change()
+        ts_mean = returns.rolling(3, min_periods=1).mean()
+        median_vol = volume.rolling(window, min_periods=1).median()
+        raw = ts_mean * (volume / (median_vol + 1e-8))
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_323_tanh(df, window=15):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = close.pct_change()
+        ts_mean = returns.rolling(3, min_periods=1).mean()
+        median_vol = volume.rolling(window, min_periods=1).median()
+        raw = ts_mean * (volume / (median_vol + 1e-8))
+        std_raw = raw.rolling(window, min_periods=1).std()
+        signal = np.tanh(raw / (std_raw + 1e-9))
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_323_zscore(df, window=10):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = close.pct_change()
+        ts_mean = returns.rolling(3, min_periods=1).mean()
+        median_vol = volume.rolling(window, min_periods=1).median()
+        raw = ts_mean * (volume / (median_vol + 1e-8))
+        mean_raw = raw.rolling(window, min_periods=1).mean()
+        std_raw = raw.rolling(window, min_periods=1).std()
+        signal = ((raw - mean_raw) / (std_raw + 1e-9)).clip(-1, 1)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_323_sign(df, window=50):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = close.pct_change()
+        ts_mean = returns.rolling(3, min_periods=1).mean()
+        median_vol = volume.rolling(window, min_periods=1).median()
+        raw = ts_mean * (volume / (median_vol + 1e-8))
+        signal = np.sign(raw)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_323_wf(df, p1=0.1, p2=30):
+        close = df['close']
+        volume = df.get('matchingVolume', df.get('volume', 1))
+        returns = close.pct_change()
+        ts_mean = returns.rolling(3, min_periods=1).mean()
+        median_vol = volume.rolling(p2, min_periods=1).median()
+        raw = ts_mean * (volume / (median_vol + 1e-8))
+        low = raw.rolling(p2, min_periods=1).quantile(p1)
+        high = raw.rolling(p2, min_periods=1).quantile(1 - p1)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_324_rank(df, window=70):
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        numerator = high - low
+        denom = close.rolling(window).std() + 1e-8
+        raw = numerator / denom
+        ret = close.pct_change()
+        seq = pd.Series(np.arange(1, 21) * 1.0, index=range(20))
+        corr = ret.rolling(20).corr(pd.Series(seq, index=df.index[-20:].values if len(df) >= 20 else df.index))
+        raw_corr = raw * corr
+        # Rolling Rank normalization (Method A)
+        signal = (raw_corr.rolling(window).rank(pct=True) * 2) - 1
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_324_tanh(df, window=10):
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        numerator = high - low
+        denom = close.rolling(window).std() + 1e-8
+        raw = numerator / denom
+        ret = close.pct_change()
+        seq = pd.Series(np.arange(1, 21) * 1.0, index=range(20))
+        corr = ret.rolling(20).corr(pd.Series(seq, index=df.index[-20:].values if len(df) >= 20 else df.index))
+        raw_corr = raw * corr
+        # Dynamic Tanh normalization (Method B)
+        rolling_std = raw_corr.rolling(window).std().replace(0, np.nan).fillna(raw_corr.abs().mean())
+        signal = np.tanh(raw_corr / rolling_std)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_324_zscore(df, window=80):
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        numerator = high - low
+        denom = close.rolling(window).std() + 1e-8
+        raw = numerator / denom
+        ret = close.pct_change()
+        seq = pd.Series(np.arange(1, 21) * 1.0, index=range(20))
+        corr = ret.rolling(20).corr(pd.Series(seq, index=df.index[-20:].values if len(df) >= 20 else df.index))
+        raw_corr = raw * corr
+        # Rolling Z-Score normalization (Method C)
+        mean_ = raw_corr.rolling(window).mean()
+        std_ = raw_corr.rolling(window).std().replace(0, np.nan).fillna(1e-8)
+        signal = ((raw_corr - mean_) / std_).clip(-1, 1)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_324_sign(df, window=5):
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        numerator = high - low
+        denom = close.rolling(window).std() + 1e-8
+        raw = numerator / denom
+        ret = close.pct_change()
+        seq = pd.Series(np.arange(1, 21) * 1.0, index=range(20))
+        corr = ret.rolling(20).corr(pd.Series(seq, index=df.index[-20:].values if len(df) >= 20 else df.index))
+        raw_corr = raw * corr
+        # Sign/Binary Soft normalization (Method D)
+        signal = np.sign(raw_corr)
+        return signal.fillna(0)
+
+    @staticmethod
+    def alpha_quanta_randomizer_324_wf(df, window=100):
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        numerator = high - low
+        denom = close.rolling(window).std() + 1e-8
+        raw = numerator / denom
+        ret = close.pct_change()
+        seq = pd.Series(np.arange(1, 21) * 1.0, index=range(20))
+        corr = ret.rolling(20).corr(pd.Series(seq, index=df.index[-20:].values if len(df) >= 20 else df.index))
+        raw_corr = raw * corr
+        # Winsorized Fisher normalization (Method E) with p1=0.05, p2=60
+        p1 = 0.05
+        p2 = 60
+        low_q = raw_corr.rolling(p2).quantile(p1)
+        high_q = raw_corr.rolling(p2).quantile(1 - p1)
+        winsorized = raw_corr.clip(lower=low_q, upper=high_q, axis=0)
+        # Fisher transform
+        normalized = np.arctanh(((winsorized - low_q) / (high_q - low_q + 1e-9)) * 1.98 - 0.99)
+        signal = normalized.fillna(0).replace([np.inf, -np.inf], 0)
+        return signal

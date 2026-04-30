@@ -7,12 +7,11 @@ from tqdm import tqdm
 import json
 import sys
 import alpha_loop
-from gen.core import Simulator
-from gen.alpha_func_lib import Domains
 import pymongo
 from bson.objectid import ObjectId
 from collections import defaultdict
-
+sys.path.insert(0, "/home/ubuntu/nevir/huy/scan")
+from core import Simulator
 sys.path.insert(0, "/home/ubuntu/nevir/huy/Gen_Alpha")
 import advance
 sys.path.insert(0, "/home/ubuntu/nevir")
@@ -171,50 +170,95 @@ def run_simulation(config):
                 'sharpe': 0,
                 'netProfit': 0,
                 'is_error': True,
-                'error_msg': str(e)
+                'error_msg': err_msg
             })
         return reports
 
 
-dic_year = {
-    'all' : {
-        'start': "2018_01_01",
-        'end' : "2026_01_01"
-    },
-    '2018' : {
-        'start' : '2018_01_01',
-        'end' : '2019_01_01'
-    },
-    '2019' : {
-        'start' : '2019_01_01',
-        'end' : '2020_01_01'
-    },
-    '2020' : {
-        'start' : '2020_01_01',
-        'end' : '2021_01_01'
-    },
-    '2021' : {
-        'start' : '2021_01_01',
-        'end' : '2022_01_01'
-    },
-    '2022' : {
-        'start' : '2022_01_01',
-        'end' : '2023_01_01'
-    },
-    '2023' : {
-        'start' : '2023_01_01',
-        'end' : '2024_01_01'
-    },
-    '2024' : {
-        'start' : '2024_01_01',
-        'end' : '2025_01_01'
-    },
-    '2025' : {
-        'start' : '2025_01_01',
-        'end' : '2026_01_01'
-    },
-
+# --- CONFIGURATION ---
+DIC_YEAR_CONFIG = {
+    'all' : {'start': "2018_01_01", 'end': "2026_01_01"},
+    '2018' : {'start': '2018_01_01', 'end': '2019_01_01'},
+    '2019' : {'start': '2019_01_01', 'end': '2020_01_01'},
+    '2020' : {'start': '2020_01_01', 'end': '2021_01_01'},
+    '2021' : {'start': '2021_01_01', 'end': '2022_01_01'},
+    '2022' : {'start': '2022_01_01', 'end': '2023_01_01'},
+    '2023' : {'start': '2023_01_01', 'end': '2024_01_01'},
+    '2024' : {'start': '2024_01_01', 'end': '2025_01_01'},
+    '2025' : {'start': '2025_01_01', 'end': '2026_01_01'},
 }
+
+def save_progress_to_db(col, alpha_id, current_alphas_str, previous_state, iteration, target_achieved, MAX_ITERATIONS):
+    """Saves the current progress of evolution to MongoDB."""
+    if not alpha_id or isinstance(alpha_id, list):
+        return
+        
+    try:
+        for name, code in current_alphas_str.items():
+            state = previous_state.get(name, {})
+            r1_all = state.get('r1_all', 0)
+            r2_all = state.get('r2_all', 0)
+            s0_by_year = state.get('s0_by_year', {})
+            
+            stop_reason = state.get('stop_reason')
+            if not stop_reason:
+                if target_achieved: stop_reason = "SUCCESS"
+                elif iteration >= MAX_ITERATIONS: stop_reason = "MAX_ITERATIONS"
+            
+            scan_result = {}
+            for yr, r1 in s0_by_year.items():
+                if yr == 'all':
+                    scan_result['all'] = [float(r1_all), float(r2_all), 0.0]
+                else:
+                    scan_result[yr] = [float(r1), 0.0, 0.0]
+            
+            update_fields = {
+                "alpha_code": code,
+                "scan": 1,
+                "scan_result": scan_result,
+                "evolution": True,
+                "last_iteration": iteration
+            }
+            
+            if stop_reason == "SUCCESS":
+                update_fields["run_all"] = 1
+                update_fields["is_error"] = 0
+            elif stop_reason:
+                update_fields["is_error"] = 2 if "timeout" in str(stop_reason).lower() else 1
+                update_fields["error_detail"] = stop_reason
+            
+            col.update_one({"_id": ObjectId(alpha_id)}, {"$set": update_fields})
+        return True
+    except Exception as e:
+        print(f"⚠️ Error saving to DB: {e}")
+        return False
+
+def analyze_simulation_results(df, name, dic_year):
+    """Analyzes simulation results for a specific alpha."""
+    df_alpha = df[df['alphaName'] == name] if not df.empty else pd.DataFrame()
+    s0_by_year = {}
+    r1_all = r2_all = 0
+    has_error = False
+    error_msg = ""
+    
+    if 'is_error' in df_alpha.columns and df_alpha['is_error'].any():
+        has_error = True
+        error_msg = df_alpha[df_alpha['is_error'] == True]['error_msg'].iloc[0]
+    
+    if not has_error:
+        for year in dic_year:
+            df_year = df_alpha[(df_alpha['year'] == year) & (df_alpha['tvr'] != 0)]
+            total = len(df_year)
+            if total > 0:
+                ratio_1 = round(len(df_year[df_year['sharpe'] > 0]) / total * 100, 2)
+                ratio_2 = round(len(df_year[df_year['sharpe'] > 1]) / total * 100, 2)
+                s0_by_year[year] = ratio_1
+                if year == 'all':
+                    r1_all, r2_all = ratio_1, ratio_2
+            else:
+                s0_by_year[year] = 0
+    
+    return r1_all, r2_all, s0_by_year, has_error, error_msg
 if __name__ == '__main__': 
     import time
     start_time_global = time.time()
@@ -236,8 +280,8 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, sigint_handler)
 
     import argparse
-    
-    parser.add_argument("--mode", choices=["flaw", "enhance", "fix"], default="flaw", help="Mode: 'flaw' (cải thiện alpha tệ), 'enhance' (cải thiện alpha tốt), or 'fix' (sửa lỗi alpha)")
+    parser = argparse.ArgumentParser(description="Alpha Evolution Pipeline")
+    parser.add_argument("--mode", choices=["flaw", "enhance", "fix"], default="flaw", help="Mode: 'flaw', 'enhance', or 'fix'")
     parser.add_argument("--id", type=str, nargs="+", default=None, help="MongoDB ObjectId(s) of the alpha to evolve")
     args = parser.parse_args()
     RUN_MODE = args.mode
@@ -246,13 +290,14 @@ if __name__ == '__main__':
     # history_dir = '/home/ubuntu/nevir/huy/evolution/history'
     # os.makedirs(history_dir, exist_ok=True)
     
-    client = pymongo.MongoClient(get_mongo_uri("mgc3"))
+    client = pymongo.MongoClient(get_mongo_uri())
     col = client["alpha"]["gen_alpha"]
 
     # Nếu không có ID truyền vào, tự động tìm các alpha chưa đạt chuẩn từ DB
     if not args.id:
         print("Đang tải toàn bộ alphas từ database để phân tích các biến thể...")
-        docs = col.find({"alpha_name": {"$exists": True}})
+        # Loại bỏ các alpha đã tiến hóa (evolution: True)
+        docs = col.find({"alpha_name": {"$exists": True}, "evolution": {"$ne": True}})
         
         groups = defaultdict(list)
         for doc in docs:
@@ -312,7 +357,12 @@ if __name__ == '__main__':
                 # Gọi lại chính script này hoặc run_test.py cho từng ID
                 cmd = f"python /home/ubuntu/nevir/huy/evolution/evolution.py --mode {RUN_MODE} --id {single_id}"
                 print(f"\n{'*'*80}\nĐang chạy tiến trình cho ID: {single_id}\n{'*'*80}\n")
-                os.system(cmd)
+                exit_code = os.system(cmd)
+                
+                # Kiểm tra nếu tiến trình con bị ngắt hoặc gặp lỗi (exit code khác 0)
+                if exit_code != 0:
+                    print(f"\n⚠️ Tiến trình con dừng với mã thoát {exit_code}. Đang dừng Batch Mode...")
+                    sys.exit(1)
             print("\n[BATCH MODE] Hoàn thành toàn bộ tiến trình cho các IDs được yêu cầu.")
             sys.exit(0)
         else:
@@ -335,7 +385,14 @@ if __name__ == '__main__':
                 alpha_code = fixes[alpha_name]
                 print(f"✅ Đã fix xong lỗi cho {alpha_name}. Bắt đầu quá trình tiến hóa.")
             else:
-                print(f"❌ Không thể fix lỗi cho {alpha_name} bằng LLM. Vẫn tiếp tục thử chạy...")
+                print(f"❌ Không thể fix lỗi cho {alpha_name} bằng LLM. Sẽ bỏ qua mô phỏng và thử fix lại ở Iteration tiếp theo.")
+                # Đánh dấu lỗi để bỏ qua mô phỏng ở Iteration 1
+                previous_state[alpha_name] = {
+                    "code": alpha_code,
+                    "r1_all": 0, "r2_all": 0, "s0_by_year": {},
+                    "has_error": True,
+                    "error_msg": alpha_info.get("error", "Initial fix failed")
+                }
 
         current_alphas_str = {alpha_name: alpha_code}
         print(f"Loaded alpha '{alpha_name}' from DB (ID: {args.id})")
@@ -348,9 +405,6 @@ if __name__ == '__main__':
     MAX_ITERATIONS = 15  # Cấu hình số vòng lặp tối đa tiến hóa
     
     previous_state = {}
-    
-    history_file_path = os.path.join(history_dir, f'history_{run_uuid}.json')
-    history_data = {}
     
     stagnation_counter = {}
     dropped_alphas = set()
@@ -365,7 +419,10 @@ if __name__ == '__main__':
         skipped_alphas = {}
         alphas_to_simulate = []
         for name in alpha_names:
-            if name in previous_state and optimized_codes[name] == previous_state[name]['code']:
+            if name in previous_state and previous_state[name].get('has_error'):
+                print(f"⏩ Đã bỏ qua mô phỏng {name} vì code vẫn đang bị lỗi. Chờ fix ở bước tiếp theo.")
+                skipped_alphas[name] = previous_state[name]
+            elif name in previous_state and optimized_codes[name] == previous_state[name]['code']:
                 print(f"⏩ Đã bỏ qua mô phỏng {name} do mã code sinh ra giống hệt vòng lặp trước.")
                 skipped_alphas[name] = previous_state[name]
             elif name in optuna_metrics and optuna_metrics[name]['r1'] < 70 and optuna_metrics[name]['r2'] < 10:
@@ -400,21 +457,19 @@ if __name__ == '__main__':
             with multiprocessing.Pool(
                 processes=num_processes,
                 initializer=init_worker,
-                initargs=(dic_freqs, DIC_ALPHAS, dic_year)
+                initargs=(dic_freqs, DIC_ALPHAS, DIC_YEAR_CONFIG)
             ) as pool:
                 results = tqdm(pool.imap_unordered(run_simulation, lst_configs), total=len(lst_configs))
                 for result_list in results:
                     lst_passed.extend(result_list)
 
-            print("Simulation finished. Analyzing results...")
             df = pd.DataFrame(lst_passed)
-            
             iter_duration = time.time() - iter_start_time
+            
             if iter_duration > 300:
-                print(f"\n🛑 TIMEOUT DETECTED: Quá trình backtest tốn quá lâu ({iter_duration:.2f}s > 300s). Sẽ tiến hành tối ưu hiệu năng (Vectorize)!")
+                print(f"🛑 TIMEOUT: Iteration took {iter_duration:.2f}s > 300s.")
                 timeout_early_stop_alphas = set(alphas_to_simulate)
         else:
-            print("No new configs to simulate. Skipping simulation phase.")
             df = pd.DataFrame()
         
         target_achieved = False
@@ -422,128 +477,63 @@ if __name__ == '__main__':
 
         for name in alpha_names:
             if name in skipped_alphas:
-                r1_all = skipped_alphas[name]['r1_all']
-                r2_all = skipped_alphas[name]['r2_all']
-                s0_by_year = skipped_alphas[name].get('s0_by_year', {})
-                has_error = False
-                error_msg = ""
+                r1_all, r2_all, s0_by_year = skipped_alphas[name]['r1_all'], skipped_alphas[name]['r2_all'], skipped_alphas[name].get('s0_by_year', {})
+                has_error = skipped_alphas[name].get('has_error', False)
+                error_msg = skipped_alphas[name].get('error_msg', "")
             else:
-                df_alpha = df[df['alphaName'] == name] if not df.empty else pd.DataFrame()
-                s0_by_year = {}
-                r1_all = 0
-                r2_all = 0
-                has_error = False
-                error_msg = ""
-                
-                if 'is_error' in df_alpha.columns and df_alpha['is_error'].any():
-                    has_error = True
-                    error_msg = df_alpha[df_alpha['is_error'] == True]['error_msg'].iloc[0]
-                
+                r1_all, r2_all, s0_by_year, has_error, error_msg = analyze_simulation_results(df, name, DIC_YEAR_CONFIG)
                 if not has_error:
-                    for year in dic_year:
-                        df_year = df_alpha[(df_alpha['year'] == year) & (df_alpha['tvr'] != 0)]
-                        if df_year.empty:
-                            continue
-                        total = len(df_year)
-                        if total > 0:
-                            ratio_1 = round(len(df_year[df_year['sharpe'] > 0]) / total * 100, 2)
-                            ratio_2 = round(len(df_year[df_year['sharpe'] > 1]) / total * 100, 2)
-                        else:
-                            ratio_1 = ratio_2 = 0
-                        
-                        s0_by_year[year] = ratio_1
-                        if year == 'all':
-                            r1_all = ratio_1
-                            r2_all = ratio_2
-                            print(f"Alpha: {name} | Year: all | Ratio 1 (>0): {ratio_1}% | Ratio 2 (>1): {ratio_2}%")
+                    print(f"Alpha: {name} | Ratio 1: {r1_all}% | Ratio 2: {r2_all}%")
+                else:
+                    print(f"\n💥 LỖI SIMULATOR CHO {name}:\n{error_msg}")
 
-            # --- EARLY STOP LOGIC ---
+            # Early Stop Logic
             stop_reason_str = None
             if name in timeout_early_stop_alphas:
-                stop_reason_str = f"EARLY STOP: Iteration took too long ({iter_duration:.2f}s > 300s)"
-                print(f"🛑 EARLY STOP: {name} bị loại do timeout iter > 300s.")
-                dropped_alphas.add(name)
+                stop_reason_str = f"EARLY STOP: Timeout ({iter_duration:.2f}s)"
             elif iteration >= 5 and (r2_all < 5 or r1_all <= 70):
-                stop_reason_str = f"EARLY STOP: iter {iteration}, r1: {r1_all}%, r2: {r2_all}% (not meeting threshold)"
-                print(f"🛑 EARLY STOP: {name} bị loại ở iter {iteration} do không đạt chuẩn tối thiểu (r1: {r1_all}%, r2: {r2_all}%).")
+                stop_reason_str = f"EARLY STOP: Low performance (r1:{r1_all}%, r2:{r2_all}%)"
+            elif name in previous_state and abs(r1_all - previous_state[name]['r1_all']) < 5:
+                stagnation_counter[name] = stagnation_counter.get(name, 0) + 1
+                if stagnation_counter[name] >= 3:
+                    stop_reason_str = "EARLY STOP: Stagnation"
+            else:
+                stagnation_counter[name] = 0
+
+            if stop_reason_str:
+                print(f"🛑 {stop_reason_str} for {name}")
                 dropped_alphas.add(name)
-                
-            if not stop_reason_str and name in previous_state:
-                prev_r1 = previous_state[name]['r1_all']
-                if abs(r1_all - prev_r1) < 5:
-                    stagnation_counter[name] = stagnation_counter.get(name, 0) + 1
-                    if stagnation_counter[name] >= 3:
-                        stop_reason_str = "EARLY STOP: r1_all giao động < 5% trong 3 vòng liên tiếp"
-                        print(f"🛑 EARLY STOP: {name} bị loại do r1_all giao động < 5% trong 3 vòng liên tiếp.")
-                        dropped_alphas.add(name)
-                else:
-                    stagnation_counter[name] = 0
-            # ------------------------
 
             if not has_error and r1_all > 80 and r2_all > 40:
-                print(f"\n🎉 SUCCESS! {name} achieved Ratio 1 > 80% ({r1_all}%) and Ratio 2 > 40% ({r2_all}%)!")
-                
-                previous_state[name] = {
-                    "code": optimized_codes[name], 
-                    "params": best_params_dict[name],
-                    "r1_all": r1_all, 
-                    "r2_all": r2_all,
-                    "s0_by_year": s0_by_year,
-                    "stop_reason": "SUCCESS"
-                }
-                
+                print(f"🎉 SUCCESS! {name} achieved target!")
+                previous_state[name] = {"code": optimized_codes[name], "params": best_params_dict[name], "r1_all": r1_all, "r2_all": r2_all, "s0_by_year": s0_by_year, "stop_reason": "SUCCESS"}
                 target_achieved = True
                 break
                 
-            trend_note = ""
-            if has_error:
-                trend_note = f"FEEDBACK: This code CRASHED during execution with error: {error_msg}. You MUST FIX the syntax/logic error. Do NOT use functions on pd.Series that require scalars (like ewm(span=Series))."
-                if name in previous_state:
-                    trend_note += f"\nPrevious working code was:\n{previous_state[name]['code']}"
-            elif name in previous_state:
+            # Feedback for next iteration
+            trend_note = f"FEEDBACK: CRASHED - {error_msg}" if has_error else ""
+            if not has_error and name in previous_state:
                 prev_r1 = previous_state[name]['r1_all']
-                prev_code = previous_state[name]['code']
-                if name in skipped_alphas or optimized_codes[name] == prev_code:
-                    trend_note = "FEEDBACK: Performance is unchanged because you returned the EXACT SAME CODE. You MUST make meaningful modifications to the mathematical logic. DO NOT return the exact same code."
-                elif r1_all > prev_r1:
-                    trend_note = f"FEEDBACK: This code improved performance from Ratio 1 = {prev_r1}% to {r1_all}%. The previous modification direction is GOOD. Continue exploring this direction."
-                elif r1_all < prev_r1:
-                    trend_note = f"FEEDBACK: This code DEGRADED performance from Ratio 1 = {prev_r1}% to {r1_all}%. The previous modification direction is BAD. AVOID this direction and revert or try a completely different approach. Previous better code was:\n{prev_code}"
-                else:
-                    trend_note = "FEEDBACK: Performance is unchanged despite logic modifications. Try a completely different mathematical approach."
-
+                if r1_all > prev_r1: trend_note = f"FEEDBACK: Improved from {prev_r1}% to {r1_all}%."
+                elif r1_all < prev_r1: trend_note = f"FEEDBACK: Degraded from {prev_r1}% to {r1_all}%."
             
             if not has_error:
-                previous_state[name] = {
-                    "code": optimized_codes[name], 
-                    "params": best_params_dict[name],
-                    "r1_all": r1_all, 
-                    "r2_all": r2_all,
-                    "s0_by_year": s0_by_year
-                }
-            
+                previous_state[name] = {"code": optimized_codes[name], "params": best_params_dict[name], "r1_all": r1_all, "r2_all": r2_all, "s0_by_year": s0_by_year}
             if stop_reason_str and name in previous_state:
                 previous_state[name]["stop_reason"] = stop_reason_str
-            
-            # Nếu bị lỗi hoặc timeout, vẫn đưa vào để FIX (thay vì drop thẳng)
+
             is_timeout = name in timeout_early_stop_alphas
-            
             if name not in dropped_alphas or is_timeout or has_error:
                 alphas_for_diagnose.append({
-                    "name": name,
-                    "code": optimized_codes[name],
-                    "metrics": {
-                        "s0_all": r1_all,
-                        "s1_all": r2_all,
-                        "s0_by_year": s0_by_year,
-                        "note": trend_note
-                    },
-                    "error": error_msg if has_error else ("Timeout/Performance issues" if is_timeout else None),
+                    "name": name, "code": optimized_codes[name],
+                    "metrics": {"s0_all": r1_all, "s1_all": r2_all, "s0_by_year": s0_by_year, "note": trend_note},
+                    "error": error_msg if has_error else ("Timeout" if is_timeout else None),
                     "error_type": 1 if has_error else (2 if is_timeout else None)
                 })
 
-        # Không lưu file history theo yêu cầu
-        print(f"Hoàn thành Iteration {iteration}.")
+        # Save progress and finish iteration
+        save_progress_to_db(col, args.id, current_alphas_str, previous_state, iteration, target_achieved, MAX_ITERATIONS)
+        print(f"Iteration {iteration} complete.")
 
         if target_achieved:
             break
@@ -619,46 +609,5 @@ if __name__ == '__main__':
     
     print(f"Total execution time: {time.strftime('%H:%M:%S', time.gmtime(total_time_seconds))}")
     
-    # Requirement 3: Cập nhật kết quả vào DB
-    if args.id and not isinstance(args.id, list):
-        try:
-            for name, code in current_alphas_str.items():
-                state = previous_state.get(name, {})
-                r1_all = state.get('r1_all', 0)
-                r2_all = state.get('r2_all', 0)
-                s0_by_year = state.get('s0_by_year', {})
-                stop_reason = state.get('stop_reason', 'SUCCESS' if target_achieved else 'MAX_ITERATIONS')
-                
-                # Xây dựng scan_result theo format (r1, r2, r3)
-                scan_result = {}
-                for yr, r1 in s0_by_year.items():
-                    if yr == 'all':
-                        scan_result['all'] = [r1_all, r2_all, 0.0]
-                    else:
-                        scan_result[yr] = [float(r1), 0.0, 0.0]
-                
-                update_fields = {
-                    "alpha_code": code,
-                    "scan": 1,
-                    "scan_result": scan_result,
-                    "evolution": True
-                }
-                
-                if stop_reason == "SUCCESS":
-                    update_fields["run_all"] = 1
-                    update_fields["is_error"] = 0
-                else:
-                    # Phân loại lỗi: 1-Logic, 2-Timeout
-                    if "timeout" in str(stop_reason).lower():
-                        update_fields["is_error"] = 2
-                    else:
-                        update_fields["is_error"] = 1
-                    update_fields["error_detail"] = stop_reason
-                
-                col.update_one({"_id": ObjectId(args.id)}, {"$set": update_fields})
-                print(f"✅ Đã cập nhật kết quả vào DB cho {name} (ID: {args.id})")
-        except Exception as e:
-            print(f"⚠️ Lỗi khi cập nhật DB: {e}")
-
     print(f"Quá trình tiến hóa cho {run_uuid} hoàn tất.")
 

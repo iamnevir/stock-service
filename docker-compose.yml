@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:8.0.17
+    container_name: nevir_mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: administrator
+      MONGO_INITDB_ROOT_PASSWORD: "Adm1n@!#$$123"
+      MONGO_INITDB_DATABASE: admin
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    command: ["--auth"]
+
+  api:
+    build: .
+    container_name: nevir_api
+    restart: always
+    environment:
+      - USER_MONGO=administrator
+      - PASS_MONGO=Adm1n@!#$123
+      - PYTHONPATH=/home/ubuntu/nevir
+    ports:
+      - "8057:8057"
+    volumes:
+      - .:/home/ubuntu/nevir
+      - ~/.ssh:/root/.ssh:ro
+    depends_on:
+      - mongodb
+    command: bash -c "sleep 5 && python /home/ubuntu/nevir/auto/test.py && python /home/ubuntu/nevir/api/api.py"
+
+volumes:
+  mongo_data:

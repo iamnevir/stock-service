@@ -82,7 +82,7 @@ def get_prompt(key: str) -> str:
 # ── MongoDB helpers ────────────────────────────────────────────────────────────
 
 def _get_collection():
-    client = pymongo.MongoClient(get_mongo_uri("mgc3"))
+    client = pymongo.MongoClient(get_mongo_uri())
     return client["alpha"]["gen_alpha"]
 
 
@@ -228,7 +228,11 @@ def _call_llm(system_prompt: str, user_message: str, model: str = DEFAULT_MODEL)
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_message},
-        ]
+        ],
+        reasoning_effort="high",
+        extra_body={
+            "thinking":{"type": "enabled"}
+        }
     )
     
     usage = response.usage
@@ -325,6 +329,13 @@ def fix_error(
                         + json.dumps({"alphas": logic_broken}, ensure_ascii=False, separators=(',',':')))
         raw = _call_llm(system_prompt, user_payload, model=model)
         fixes = _extract_json(raw)
+        
+        # Robustness: If only one alpha was sent and LLM returned a generic key (like "alpha_name"), 
+        # map it back to the original alpha name.
+        if len(logic_broken) == 1 and len(fixes) == 1:
+            orig_name = logic_broken[0]["name"]
+            fixes = {orig_name: list(fixes.values())[0]}
+            
         all_fixes.update({name: _clean_code(code) for name, code in fixes.items()})
 
     # 2. Fix Timeout/Performance Errors (same system prompt for cache)
@@ -337,6 +348,12 @@ def fix_error(
                         + json.dumps({"alphas": timeout_broken}, ensure_ascii=False, separators=(',',':')))
         raw = _call_llm(system_prompt, user_payload, model=model)
         fixes = _extract_json(raw)
+        
+        # Robustness: If only one alpha was sent and LLM returned a generic key, map it back.
+        if len(timeout_broken) == 1 and len(fixes) == 1:
+            orig_name = timeout_broken[0]["name"]
+            fixes = {orig_name: list(fixes.values())[0]}
+            
         all_fixes.update({name: _clean_code(code) for name, code in fixes.items()})
 
     if verbose:

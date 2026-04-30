@@ -404,7 +404,7 @@ fix_timeout_alpha: |-
   - Rolling Rank: `df.rolling(w).rank(pct=True)`
 
   ## OUTPUT FORMAT (strict JSON)
-  { "alpha_name": "@staticmethod\ndef alpha_name(...): ..." }
+  { "actual_alpha_name": "@staticmethod\ndef actual_alpha_name(...): ..." }
 
 fix_logic_alpha: |-
   # ROLE: EXPERT QUANT DEBUGGER
@@ -422,7 +422,7 @@ fix_logic_alpha: |-
   - Đảm bảo code chạy được và trả về pd.Series trong dải [-1, 1].
 
   ## OUTPUT FORMAT (strict JSON)
-  { "alpha_name": "@staticmethod\ndef alpha_name(...): ..." }
+  { "actual_alpha_name": "@staticmethod\ndef actual_alpha_name(...): ..." }
 
 
 evolve_alpha: |-

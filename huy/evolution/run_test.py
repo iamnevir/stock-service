@@ -7,8 +7,8 @@ from tqdm import tqdm
 import json
 import sys
 import alpha_loop
-from gen.core import Simulator
-from gen.alpha_func_lib import Domains
+sys.path.insert(0, "/home/ubuntu/nevir/huy/scan")
+from core import Simulator
 
 sys.path.insert(0, "/home/ubuntu/nevir/huy/Gen_Alpha")
 import advance
@@ -261,7 +261,7 @@ if __name__ == '__main__':
         sys.path.insert(0, "/home/ubuntu/nevir")
         from auto.utils import get_mongo_uri
         
-        client = pymongo.MongoClient(get_mongo_uri("mgc3"))
+        client = pymongo.MongoClient(get_mongo_uri())
         col = client["alpha"]["gen_alpha"]
         doc = col.find_one({"_id": ObjectId(args.id)})
         if not doc:
