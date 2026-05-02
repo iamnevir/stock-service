@@ -89,6 +89,10 @@ def load_dic_freqs(source,overnight=False):
         fn = "/home/ubuntu/nevir/gen/dic_freqs_ha.pickle"
     elif source == "ha_confirm":
         fn = "/home/ubuntu/nevir/gen/dic_freqs_comfirm_ha.pickle"
+    elif source == "vn30":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_vn30.pickle"
+    elif source == "vnindex":
+        fn = "/home/ubuntu/nevir/gen/dic_freqs_vnindex.pickle"
     else:  
         fn = "/home/ubuntu/nevir/gen/alpha.pkl"
     with open(fn, 'rb') as file:
@@ -96,12 +100,15 @@ def load_dic_freqs(source,overnight=False):
     if overnight:
         for freq in dic_freqs.keys():
             df = dic_freqs[freq].copy()
-            
-            df.loc[df['executionTime'] == '14:45:00', 'exitPrice'] = df['open'].shift(-2)
+            if source == "ha":
+                df.loc[df['executionTime'] == '14:45:00', 'exitPrice'] = df['old_open'].shift(-2) 
+            else:
+                df.loc[df['executionTime'] == '14:45:00', 'exitPrice'] = df['open'].shift(-2)
             df['priceChange'] = df['exitPrice'] - df['entryPrice']
             
             dic_freqs[freq] = df
     return dic_freqs
+   
     
 import logging
 UTC_PLUS_7 = timezone(timedelta(hours=7))

@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 
 # Khai báo các đường dẫn
-INPUT_RAW_FORMULA_ALPHA = "/home/ubuntu/nevir/huy/Gen_Alpha/quanta_randomizer.json"
+INPUT_RAW_FORMULA_ALPHA = "/home/ubuntu/nevir/huy/Gen_Alpha/factorminer_vn.json"
 PROMT = "/home/ubuntu/nevir/huy/Gen_Alpha/promt_v0.txt"
 ALPHA_PATCH = "/home/ubuntu/nevir/huy/Gen_Alpha/alpha.py"
 RUN_IC_SCRIPT = "/home/ubuntu/nevir/huy/gen1_2_factor_minor/run.py"

@@ -7,14 +7,14 @@ def rename_keys(file_path):
     
     new_data = {}
     for i, (old_key, value) in enumerate(data.items(), 1):
-        new_key = f"quanta_randomizer_{i:03d}"
+        new_key = f"factorminer_vn_{i:03d}"
         new_data[new_key] = value
         
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(new_data, f, indent=4, ensure_ascii=False)
     
-    print(f"Done! Renamed {len(new_data)} keys to quanta in {file_path}")
+    print(f"Done! Renamed {len(new_data)} keys to factorminer_vn in {file_path}")
 
 if __name__ == "__main__":
-    target_file = "/home/ubuntu/nevir/huy/Gen_Alpha/quanta_randomizer.json"
+    target_file = "/home/ubuntu/nevir/huy/Gen_Alpha/factorminer_vn.json"
     rename_keys(target_file)
