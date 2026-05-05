@@ -302,6 +302,7 @@ def loop_monitor(shared_state):
             error = alpha_coll.count_documents({**query, "is_error": 1})
             timeout = alpha_coll.count_documents({**query, "is_error": 2})
             sharp_pass = alpha_coll.count_documents({**query, "run_all": {"$exists": True, "$ne": None} })
+            scan_full_done = alpha_coll.count_documents({**query, "run_all": 3})
             scan_full_running = alpha_coll.count_documents({**query, "run_all": 2})
             scan_full_pass = alpha_coll.count_documents({
                 **query,
@@ -322,10 +323,10 @@ def loop_monitor(shared_state):
             print("\n" + "="*60)
             print(f"📊 MONITOR [{now_str}] (Group: {prefix})")
             print(f"  [1] SINH CODE :  {shared_state.get('gen', 'N/A')}")
-            print(f"  [2] TÍNH IC   :  {shared_state.get('ic', 'N/A')}")
+            # print(f"  [2] TÍNH IC   :  {shared_state.get('ic', 'N/A')}")
             print(f"  [3] QUÉT SHARP:  {shared_state.get('scan', 'N/A')}")
             print("-" * 30)
-            print(f"  TỔNG: {total} | ĐỢI IC: {pending_ic} | ĐỢI SCAN: {pending_scan} | XONG: {done} | LỖI: {error} | TIMEOUT: {timeout} | SHARP PASS: {sharp_pass} | SCAN FULL RUNNING: {scan_full_running} | SCAN FULL PASS: {scan_full_pass}")
+            print(f"  TỔNG: {total} | ĐỢI SCAN: {pending_scan} | XONG: {done} | LỖI: {error} | TIMEOUT: {timeout} | SHARP PASS: {sharp_pass} | SCAN FULL DONE: {scan_full_done} | SCAN FULL PASS: {scan_full_pass} | ĐỢI SCAN FULL RUNNING: {sharp_pass - scan_full_done}")
             print("="*60 + "\n")
             
             time.sleep(15)

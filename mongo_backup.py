@@ -15,14 +15,16 @@ BACKUP_DBS = [
     "busd",
     "base",
     "stock_backtest",
-    "gen1_2"
+    "gen1_2",
+    "megalodon",
+    "backtest_dev",
 ]
 
 
 EXCLUDE_COLLECTIONS = {
-    "alpha": ["wfa_results", "correlation_results"],
-    "busd": ["wfa_results", "correlation_results"],
-    "base": ["wfa_results", "correlation_results"],
+    "alpha": ["wfa_results", "correlation_results","correlation_backtest","df1d","alpha_cpcv"],
+    "busd": ["wfa_results", "correlation_results","correlation_backtest","df1d","busd_dynamic","busd_daily_results","busd_cpcv"],
+    "base": ["wfa_results", "correlation_results","correlation_backtest","df1d","base_cpcv"],
     "stock_backtest": ["correlation_results"],
     "gen1_2": ["correlation_results"]
 }

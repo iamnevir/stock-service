@@ -12764,6 +12764,603 @@ class Alphas:
         normalized = np.tanh(raw / denom)
         return normalized.fillna(0.0)
 
+    @staticmethod
+    def alpha_factorminer_vn_007_tanh(df, window=90, factor=7):
+        factor=int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        cov = df['close'].rolling(window).cov(vwap)
+        var = vwap.rolling(window).var().replace(0, np.nan)
+        slope = cov / var
+        intercept = df['close'].rolling(window).mean() - slope * vwap.rolling(window).mean()
+        resid = df['close'] - (intercept + slope * vwap)
+        x2 = pd.Series(np.arange(len(df)), index=df.index)
+        cov_resid = resid.rolling(factor).cov(x2)
+        var_x2 = x2.rolling(factor).var().replace(0, np.nan)
+        slope_resid = cov_resid / var_x2
+        raw = -slope_resid
+        # Normalize using Dynamic Tanh (Case B) - keep magnitude
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_044_wf(df, window=60, factor=1):
+        factor=int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        rank_vwap = vwap.rolling(window).rank(pct=True)
+        pct_change = rank_vwap.pct_change(periods=factor).fillna(0)
+        signal = -pct_change
+        low = signal.rolling(window).quantile(0.05)
+        high = signal.rolling(window).quantile(1 - 0.05)
+        winsorized = signal.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_068_rank(df, window=20, factor=0.5):
+        factor=float(factor)
+        returns = df['close'].pct_change()
+        count_big = (returns.abs() > factor).rolling(window).sum()
+        threshold_count = 7
+        condition = count_big > threshold_count
+        raw = np.where(condition, returns, -returns)
+        raw_series = pd.Series(raw, index=df.index)
+        normalized = (raw_series.rolling(window).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_068_tanh(df, window=30, factor=0.7):
+        factor=float(factor)
+        returns = df['close'].pct_change()
+        count_big = (returns.abs() > factor).rolling(window).sum()
+        threshold_count = 7
+        condition = count_big > threshold_count
+        raw = np.where(condition, returns, -returns)
+        raw_series = pd.Series(raw, index=df.index)
+        std_raw = raw_series.rolling(window).std().replace(0, np.nan)
+        normalized = np.tanh(raw_series / std_raw)
+        return -normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_068_wf(df, window=60, factor=30):
+        factor=int(factor)
+        returns = df['close'].pct_change()
+        count_big = (returns.abs() > 0.02).rolling(window).sum()
+        threshold_count = 7
+        condition = count_big > threshold_count
+        raw = np.where(condition, returns, -returns)
+        raw_series = pd.Series(raw, index=df.index)
+        p1 = 0.05
+        p2 = factor
+        low = raw_series.rolling(p2).quantile(p1)
+        high = raw_series.rolling(p2).quantile(1 - p1)
+        winsorized = raw_series.clip(lower=low, upper=high)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return -normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_068_zscore(df, window=20, factor=0.1):
+        factor=float(factor)
+        returns = df['close'].pct_change()
+        count_big = (returns.abs() > factor).rolling(window).sum()
+        threshold_count = 7
+        condition = count_big > threshold_count
+        raw = np.where(condition, returns, -returns)
+        raw_series = pd.Series(raw, index=df.index)
+        mean_raw = raw_series.rolling(window).mean()
+        std_raw = raw_series.rolling(window).std().replace(0, np.nan)
+        normalized = ((raw_series - mean_raw) / std_raw).clip(-1, 1)
+        return -normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_075_rank(df, window=65):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        ret = df['close'].pct_change()
+        vwap_z = (vwap - vwap.rolling(window).mean()) / vwap.rolling(window).std()
+        ret_z = (ret - ret.rolling(window).mean()) / ret.rolling(window).std()
+        numer = (ret_z ** 2).rolling(window).sum()
+        denom = (ret_z ** 4).rolling(window).mean()
+        cokurt = numer / denom - 3
+        raw = pd.Series(np.where(cokurt > 0, ret, -ret), index=df.index)
+        raw = raw.fillna(0)
+        result = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return result.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_075_tanh(df, window=70):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        ret = df['close'].pct_change()
+        vwap_z = (vwap - vwap.rolling(window).mean()) / vwap.rolling(window).std()
+        ret_z = (ret - ret.rolling(window).mean()) / ret.rolling(window).std()
+        numer = (ret_z ** 2).rolling(window).sum()
+        denom = (ret_z ** 4).rolling(window).mean()
+        cokurt = numer / denom - 3
+        raw = pd.Series(np.where(cokurt > 0, ret, -ret), index=df.index)
+        raw = raw.fillna(0)
+        result = np.tanh(raw / (raw.rolling(window).std().replace(0, np.nan)))
+        return result.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_075_zscore(df, window=100):
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        ret = df['close'].pct_change()
+        vwap_z = (vwap - vwap.rolling(window).mean()) / vwap.rolling(window).std()
+        ret_z = (ret - ret.rolling(window).mean()) / ret.rolling(window).std()
+        numer = (ret_z ** 2).rolling(window).sum()
+        denom = (ret_z ** 4).rolling(window).mean()
+        cokurt = numer / denom - 3
+        raw = pd.Series(np.where(cokurt > 0, ret, -ret), index=df.index)
+        raw = raw.fillna(0)
+        result = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std()).clip(-1, 1)
+        return result.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_112_rank(df, window=25):
+        amt = df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1)))
+        ret = df['close'].pct_change()
+        rolling_mean = amt.rolling(window).mean()
+        rolling_std = amt.rolling(window).std()
+        bollinger_range = (rolling_std * 2) / rolling_mean
+        bollinger_range = bollinger_range.fillna(0).replace([np.inf, -np.inf], 0)
+        raw = ret.rolling(window).rank(pct=True) * 2 - 1
+        condition = bollinger_range < 0.1
+        signal = pd.Series(np.where(condition, raw, -raw), index=df.index)
+        # Chuẩn hóa Rolling Rank
+        norm = (signal.rolling(window).rank(pct=True) * 2 - 1).fillna(0).replace([np.inf, -np.inf], 0)
+        return -norm.clip(-1, 1)
+    
+    @staticmethod
+    def alpha_factorminer_vn_112_tanh(df, window=25):
+        amt = df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1)))
+        ret = df['close'].pct_change()
+        rolling_mean = amt.rolling(window).mean()
+        rolling_std = amt.rolling(window).std()
+        bollinger_range = (rolling_std * 2) / rolling_mean
+        bollinger_range = bollinger_range.fillna(0).replace([np.inf, -np.inf], 0)
+        raw = (ret - ret.rolling(window).mean()) / ret.rolling(window).std()
+        raw = raw.fillna(0).replace([np.inf, -np.inf], 0)
+        condition = bollinger_range < 0.1
+        signal = pd.Series(np.where(condition, raw, -raw), index=df.index)
+        # Chuẩn hóa Dynamic Tanh
+        norm = np.tanh(signal / signal.rolling(window).std().replace(0, np.nan)).fillna(0)
+        return -norm.clip(-1, 1)
+    
+    @staticmethod
+    def alpha_factorminer_vn_112_zscore(df, window=35):
+        amt = df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1)))
+        ret = df['close'].pct_change()
+        rolling_mean = amt.rolling(window).mean()
+        rolling_std = amt.rolling(window).std()
+        bollinger_range = (rolling_std * 2) / rolling_mean
+        bollinger_range = bollinger_range.fillna(0).replace([np.inf, -np.inf], 0)
+        raw = (ret - ret.rolling(window).mean()) / ret.rolling(window).std()
+        raw = raw.fillna(0).replace([np.inf, -np.inf], 0)
+        condition = bollinger_range < 0.1
+        signal = pd.Series(np.where(condition, raw, -raw), index=df.index)
+        # Chuẩn hóa Rolling Z-Score/Clip
+        rolling_mean_sig = signal.rolling(window).mean()
+        rolling_std_sig = signal.rolling(window).std().replace(0, np.nan)
+        norm = ((signal - rolling_mean_sig) / rolling_std_sig).fillna(0).clip(-1, 1)
+        return -norm
+    
+    @staticmethod
+    def alpha_factorminer_vn_121_tanh(df, window=100, factor=20):
+        factor=int(factor)
+        close = df['close']
+        returns = close.pct_change().fillna(0)
+        y = returns
+        x = pd.Series(np.arange(len(df)), index=df.index)
+        x_mean = x.rolling(window).mean()
+        y_mean = y.rolling(window).mean()
+        x_diff = x - x_mean
+        y_diff = y - y_mean
+        beta = (x_diff * y_diff).rolling(window).sum() / (x_diff ** 2).rolling(window).sum().replace(0, np.nan)
+        intercept = y_mean - beta * x_mean
+        resid = y - (intercept + beta * x)
+        y2 = resid
+        x2 = pd.Series(np.arange(len(df)), index=df.index)
+        x_mean2 = x2.rolling(factor).mean()
+        y_mean2 = y2.rolling(factor).mean()
+        x_diff2 = x2 - x_mean2
+        y_diff2 = y2 - y_mean2
+        beta2 = (x_diff2 * y_diff2).rolling(factor).sum() / (x_diff2 ** 2).rolling(factor).sum().replace(0, np.nan)
+        intercept2 = y_mean2 - beta2 * x2
+        resid2 = y2 - (intercept2 + beta2 * x2)
+        raw = -(-resid2)
+        result = np.tanh(raw / raw.rolling(factor).std().replace(0, np.nan))
+        return result.fillna(0)
+
+    @staticmethod
+    def alpha_factorminer_vn_121_wf(df, window=90, factor=40):
+        factor=int(factor)
+        close = df['close']
+        returns = close.pct_change().fillna(0)
+        y = returns
+        x = pd.Series(np.arange(len(df)), index=df.index)
+        x_mean = x.rolling(window).mean()
+        y_mean = y.rolling(window).mean()
+        x_diff = x - x_mean
+        y_diff = y - y_mean
+        beta = (x_diff * y_diff).rolling(window).sum() / (x_diff ** 2).rolling(window).sum().replace(0, np.nan)
+        intercept = y_mean - beta * x_mean
+        resid = y - (intercept + beta * x)
+        y2 = resid
+        x2 = pd.Series(np.arange(len(df)), index=df.index)
+        x_mean2 = x2.rolling(factor).mean()
+        y_mean2 = y2.rolling(factor).mean()
+        x_diff2 = x2 - x_mean2
+        y_diff2 = y2 - y_mean2
+        beta2 = (x_diff2 * y_diff2).rolling(factor).sum() / (x_diff2 ** 2).rolling(factor).sum().replace(0, np.nan)
+        intercept2 = y_mean2 - beta2 * x2
+        resid2 = y2 - (intercept2 + beta2 * x2)
+        raw = -(-resid2)
+        low = raw.rolling(factor).quantile(0.05)
+        high = raw.rolling(factor).quantile(1 - 0.05)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        result = pd.Series(normalized, index=df.index).fillna(0)
+        return result
+    
+    @staticmethod
+    def alpha_factorminer_vn_121_zscore(df, window=80, factor=40):
+        factor=int(factor)
+        close = df['close']
+        returns = close.pct_change().fillna(0)
+        y = returns
+        x = pd.Series(np.arange(len(df)), index=df.index)
+        x_mean = x.rolling(window).mean()
+        y_mean = y.rolling(window).mean()
+        x_diff = x - x_mean
+        y_diff = y - y_mean
+        beta = (x_diff * y_diff).rolling(window).sum() / (x_diff ** 2).rolling(window).sum().replace(0, np.nan)
+        intercept = y_mean - beta * x_mean
+        resid = y - (intercept + beta * x)
+        y2 = resid
+        x2 = pd.Series(np.arange(len(df)), index=df.index)
+        x_mean2 = x2.rolling(factor).mean()
+        y_mean2 = y2.rolling(factor).mean()
+        x_diff2 = x2 - x_mean2
+        y_diff2 = y2 - y_mean2
+        beta2 = (x_diff2 * y_diff2).rolling(factor).sum() / (x_diff2 ** 2).rolling(factor).sum().replace(0, np.nan)
+        intercept2 = y_mean2 - beta2 * x2
+        resid2 = y2 - (intercept2 + beta2 * x2)
+        raw = -(-resid2)
+        result = ((raw - raw.rolling(factor).mean()) / raw.rolling(factor).std().replace(0, np.nan)).clip(-1, 1)
+        return result.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_144_tanh(df, window=30, factor=7):
+        factor=int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        close = df['close']
+        cov = close.rolling(window).cov(vwap)
+        var_vwap = vwap.rolling(window).var().replace(0, np.nan)
+        slope = cov / var_vwap
+        intercept = vwap.rolling(window).mean() - slope * close.rolling(window).mean()
+        predicted_vwap = intercept + slope * close
+        resi = vwap - predicted_vwap
+        y = resi
+        x = pd.Series(np.arange(len(df)), index=df.index)
+        cov2 = y.rolling(factor).cov(x)
+        var_x = x.rolling(factor).var().replace(0, np.nan)
+        raw = -(cov2 / var_x)
+        # Normalize (B): Dynamic Tanh
+        result = np.tanh(raw / raw.rolling(factor).std().replace(0, np.nan))
+        return result.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_163_wf(df, window=100, factor=3):
+        factor=int(factor)
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        close = df['close']
+        decay_alpha = 2.0 / (window + 1)
+        decayed_vwap = vwap.ewm(alpha=decay_alpha, adjust=False).mean()
+        y = close
+        x = decayed_vwap
+        w = 17
+        cov = x.rolling(w).cov(y)
+        var = x.rolling(w).var().replace(0, np.nan)
+        slope = cov / var
+        intercept = y.rolling(w).mean() - slope * x.rolling(w).mean()
+        resid = y - (slope * x + intercept)
+        days = pd.Series(np.arange(len(df)), index=df.index)
+        x_days = days
+        y_resid = resid
+        w_slope = factor
+        cov_slope = x_days.rolling(w_slope).cov(y_resid)
+        var_slope = x_days.rolling(w_slope).var().replace(0, np.nan)
+        ts_slope = cov_slope / var_slope
+        raw = ts_slope
+        # Winsorized Fisher Transform (E)
+        low = raw.rolling(window=22).quantile(0.05)
+        high = raw.rolling(window=22).quantile(1 - 0.05)
+        winsorized = raw.clip(lower=low, upper=high, axis=0)
+        normalized = np.arctanh(((winsorized - low) / (high - low + 1e-9)) * 1.98 - 0.99)
+        return normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_175_rank(df, window=1, factor=30):
+        factor=int(factor)
+        close = df['close']
+        returns = close.pct_change().fillna(0)
+        kama_alpha = 2.0 / (window + 1.0)
+        kama = returns.ewm(alpha=kama_alpha, adjust=False).mean()
+        median = kama.rolling(factor).median()
+        mad = (kama - median).abs().rolling(factor).median()
+        robust_z = (kama - median) / (mad * 1.4826 + 1e-9)
+        signal = (-robust_z).rolling(factor).rank(pct=True) * 2 - 1
+        return -signal.fillna(0).clip(-1, 1)
+    
+    @staticmethod
+    def alpha_factorminer_vn_175_tanh(df, window=3, factor=10):
+        factor=int(factor)
+        close = df['close']
+        returns = close.pct_change().fillna(0)
+        kama_alpha = 2.0 / (window + 1.0)
+        kama = returns.ewm(alpha=kama_alpha, adjust=False).mean()
+        median = kama.rolling(factor).median()
+        mad = (kama - median).abs().rolling(factor).median()
+        robust_z = (kama - median) / (mad * 1.4826 + 1e-9)
+        signal = -np.tanh(robust_z)
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_175_zscore(df, window=3, factor=80):
+        factor=int(factor)
+        close = df['close']
+        returns = close.pct_change().fillna(0)
+        kama_alpha = 2.0 / (window + 1.0)
+        kama = returns.ewm(alpha=kama_alpha, adjust=False).mean()
+        median = kama.rolling(factor).median()
+        mad = (kama - median).abs().rolling(factor).median()
+        robust_z = (kama - median) / (mad * 1.4826 + 1e-9)
+        signal = -((robust_z - robust_z.rolling(factor).mean()) / robust_z.rolling(factor).std().replace(0, np.nan)).clip(-1, 1)
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_206_rank(df, window=45):
+        returns = df['close'].pct_change().fillna(0)
+        median = returns.rolling(window).median()
+        mad = (returns - median).abs().rolling(window).median().replace(0, np.nan)
+        robust_zscore = (returns - median) / mad
+        raw = -robust_zscore
+        normalized = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_206_tanh(df, window=50):
+        returns = df['close'].pct_change().fillna(0)
+        median = returns.rolling(window).median()
+        mad = (returns - median).abs().rolling(window).median().replace(0, np.nan)
+        robust_zscore = (returns - median) / mad
+        raw = -robust_zscore
+        normalized = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_206_zscore(df, window=50):
+        returns = df['close'].pct_change().fillna(0)
+        median = returns.rolling(window).median()
+        mad = (returns - median).abs().rolling(window).median().replace(0, np.nan)
+        robust_zscore = (returns - median) / mad
+        raw = -robust_zscore
+        normalized = ((raw - raw.rolling(window).mean()) / raw.rolling(window).std().replace(0, np.nan)).clip(-1, 1)
+        return -normalized.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_246_rank(df, window=60):
+        close = df['close']
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        # Tính slope của linear regression close ~ vwap
+        slope = close.rolling(window).cov(vwap) / vwap.rolling(window).var().replace(0, np.nan)
+        # Intercept và residual
+        intercept = close.rolling(window).mean() - slope * vwap.rolling(window).mean()
+        predicted = intercept + slope * vwap
+        residual = close - predicted
+        # Chuẩn hóa Rolling Rank A
+        raw = -residual
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_246_tanh(df, window=90):
+        close = df['close']
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        # Tính slope của linear regression close ~ vwap
+        slope = close.rolling(window).cov(vwap) / vwap.rolling(window).var().replace(0, np.nan)
+        intercept = close.rolling(window).mean() - slope * vwap.rolling(window).mean()
+        predicted = intercept + slope * vwap
+        residual = close - predicted
+        raw = -residual
+        # Chuẩn hóa Dynamic Tanh B
+        signal = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_246_zscore(df, window=95):
+        close = df['close']
+        vwap = df.get('vwap', (df['high'] + df['low'] + df['close']) / 3)
+        # Tính slope của linear regression close ~ vwap
+        slope = close.rolling(window).cov(vwap) / vwap.rolling(window).var().replace(0, np.nan)
+        intercept = close.rolling(window).mean() - slope * vwap.rolling(window).mean()
+        predicted = intercept + slope * vwap
+        residual = close - predicted
+        raw = -residual
+        # Chuẩn hóa Rolling Z-Score/Clip C
+        mean_res = raw.rolling(window).mean()
+        std_res = raw.rolling(window).std().replace(0, np.nan)
+        signal = ((raw - mean_res) / std_res).clip(-1, 1)
+        return -signal.fillna(0)
+    
+    @staticmethod
+    def alpha_factorminer_vn_259_tanh(df, window=15):
+        raw = -((df['close'].diff(2) / df['close'].shift(2)) * (df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1))) / df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1))).rolling(7).mean())).replace([np.inf, -np.inf], np.nan)
+        raw = raw.ffill().fillna(0)
+        signal = np.tanh(raw / (raw.rolling(window).std().replace(0, np.nan)))
+        signal = signal.ffill().fillna(0)
+        return -signal
+    
+    @staticmethod
+    def alpha_factorminer_vn_259_zscore(df, window=10):
+        raw = -((df['close'].diff(2) / df['close'].shift(2)) * (df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1))) / df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1))).rolling(7).mean())).replace([np.inf, -np.inf], np.nan)
+        raw = raw.ffill().fillna(0)
+        roll_mean = raw.rolling(window).mean()
+        roll_std = raw.rolling(window).std().replace(0, np.nan)
+        signal = ((raw - roll_mean) / roll_std).clip(-1, 1)
+        signal = signal.ffill().fillna(0)
+        return -signal
+    
+    @staticmethod
+    def alpha_factorminer_vn_282_tanh(df, window=15):
+        high = df['high']
+        close = df['close']
+        ts_max_high = high.rolling(window).max()
+        cond = close > ts_max_high
+        delta_close_2 = close.diff(2)
+        cs_zscore_1 = (delta_close_2 - delta_close_2.expanding().mean()) / delta_close_2.expanding().std()
+        delta_neg = -delta_close_2
+        cs_zscore_2 = (delta_neg - delta_neg.expanding().mean()) / delta_neg.expanding().std()
+        raw = pd.Series(np.where(cond, cs_zscore_1, cs_zscore_2), index=df.index)
+        return -np.tanh(raw / raw.rolling(window).std())
+    
+    @staticmethod
+    def alpha_factorminer_vn_282_zscore(df, window=10):
+        high = df['high']
+        close = df['close']
+        ts_max_high = high.rolling(window).max()
+        cond = close > ts_max_high
+        delta_close_2 = close.diff(2)
+        cs_zscore_1 = (delta_close_2 - delta_close_2.expanding().mean()) / delta_close_2.expanding().std()
+        delta_neg = -delta_close_2
+        cs_zscore_2 = (delta_neg - delta_neg.expanding().mean()) / delta_neg.expanding().std()
+        raw = pd.Series(np.where(cond, cs_zscore_1, cs_zscore_2), index=df.index)
+        mean_ = raw.rolling(window).mean()
+        std_ = raw.rolling(window).std()
+        return -((raw - mean_) / std_).clip(-1, 1)
+    
+    @staticmethod
+    def alpha_factorminer_vn_284_rank(df, window=60):
+        amt = df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1)))
+        close = df['close']
+        returns = close.pct_change(fill_method=None)
+        log_amt = np.log1p(amt)
+        skew_amt = log_amt.rolling(window).skew()
+        w2 = 17
+        amt_16 = log_amt.rolling(w2)
+        ret_16 = returns.rolling(w2)
+        mean_ret = ret_16.mean()
+        mean_amt = amt_16.mean()
+        cov = (returns - mean_ret).rolling(w2).cov(log_amt - mean_amt)
+        var_amt = (log_amt - mean_amt).rolling(w2).var().replace(0, np.nan)
+        beta = cov / var_amt
+        intercept = mean_ret - beta * mean_amt
+        resid = returns - (intercept + beta * log_amt)
+        resid_mean = resid.rolling(w2).mean()
+        resid_std = resid.rolling(w2).std().replace(0, np.nan)
+        cs_resi = (resid - resid_mean) / resid_std
+        beta_mean = beta.rolling(w2).mean()
+        beta_std = beta.rolling(w2).std().replace(0, np.nan)
+        cs_beta = (beta - beta_mean) / beta_std
+        raw = pd.Series(np.where(skew_amt > 0, cs_beta, cs_resi), index=df.index)
+        raw = -raw
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        signal = signal.ffill().fillna(0)
+        return -signal
+    
+    @staticmethod
+    def alpha_factorminer_vn_284_tanh(df, window=60):
+        amt = df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1)))
+        close = df['close']
+        returns = close.pct_change(fill_method=None)
+        log_amt = np.log1p(amt)
+        skew_amt = log_amt.rolling(window).skew()
+        w2 = 17
+        amt_mean = log_amt.rolling(w2).mean()
+        ret_mean = returns.rolling(w2).mean()
+        cov = ((returns - ret_mean) * (log_amt - amt_mean)).rolling(w2).mean()
+        var_amt = ((log_amt - amt_mean) ** 2).rolling(w2).mean().replace(0, np.nan)
+        beta = cov / var_amt
+        intercept = ret_mean - beta * amt_mean
+        resid = returns - (intercept + beta * log_amt)
+        resid_mean = resid.rolling(w2).mean()
+        resid_std = resid.rolling(w2).std().replace(0, np.nan)
+        cs_resi = (resid - resid_mean) / resid_std
+        beta_mean = beta.rolling(w2).mean()
+        beta_std = beta.rolling(w2).std().replace(0, np.nan)
+        cs_beta = (beta - beta_mean) / beta_std
+        raw = pd.Series(np.where(skew_amt > 0, cs_beta, cs_resi), index=df.index)
+        raw = -raw
+        # Normalization B: Dynamic Tanh with scaling
+        std_raw = raw.rolling(window).std().replace(0, np.nan)
+        signal = np.tanh(raw / std_raw)
+        signal = signal.ffill().fillna(0)
+        return -signal
+
+    @staticmethod
+    def alpha_factorminer_vn_284_zscore(df, window=60):
+        amt = df.get('amount', df['close'] * df.get('matchingVolume', df.get('volume', 1)))
+        close = df['close']
+        returns = close.pct_change(fill_method=None)
+        log_amt = np.log1p(amt)
+        skew_amt = log_amt.rolling(window).skew()
+        w2 = 17
+        amt_mean = log_amt.rolling(w2).mean()
+        ret_mean = returns.rolling(w2).mean()
+        cov = ((returns - ret_mean) * (log_amt - amt_mean)).rolling(w2).mean()
+        var_amt = ((log_amt - amt_mean) ** 2).rolling(w2).mean().replace(0, np.nan)
+        beta = cov / var_amt
+        intercept = ret_mean - beta * amt_mean
+        resid = returns - (intercept + beta * log_amt)
+        resid_mean = resid.rolling(w2).mean()
+        resid_std = resid.rolling(w2).std().replace(0, np.nan)
+        cs_resi = (resid - resid_mean) / resid_std
+        beta_mean = beta.rolling(w2).mean()
+        beta_std = beta.rolling(w2).std().replace(0, np.nan)
+        cs_beta = (beta - beta_mean) / beta_std
+        raw = pd.Series(np.where(skew_amt > 0, cs_beta, cs_resi), index=df.index)
+        raw = -raw
+        # Normalization C: Rolling Z-Score/Clip
+        raw_mean = raw.rolling(window).mean()
+        raw_std = raw.rolling(window).std().replace(0, np.nan)
+        signal = ((raw - raw_mean) / raw_std).clip(-1, 1)
+        signal = signal.ffill().fillna(0)
+        return -signal
+    
+    @staticmethod
+    def alpha_factorminer_vn_297_rank(df, window=100, factor=20):
+        factor=int(factor)
+        close = df['close']
+        mid = close.rolling(window).mean()
+        std = close.rolling(window).std()
+        bollinger_range = (close - mid) / std
+        mean_bollinger_range = bollinger_range.rolling(window * 2).mean()
+        greater = bollinger_range > mean_bollinger_range
+        rets = close.pct_change()
+        z_returns = (rets - rets.rolling(factor).mean()) / rets.rolling(factor).std()
+        delta_close = close.diff()
+        z_delta = (delta_close - delta_close.rolling(factor).mean()) / delta_close.rolling(factor).std()
+        raw = pd.Series(np.where(greater, z_returns, z_delta), index=df.index)
+        raw = raw.ffill().fillna(0)
+        signal = (raw.rolling(window).rank(pct=True) * 2) - 1
+        return -signal * -1
+
+    @staticmethod
+    def alpha_factorminer_vn_297_tanh(df, window=30, factor=40):
+        factor=int(factor)
+        close = df['close']
+        mid = close.rolling(window).mean()
+        std = close.rolling(window).std()
+        bollinger_range = (close - mid) / std
+        mean_bollinger_range = bollinger_range.rolling(window * 2).mean()
+        greater = bollinger_range > mean_bollinger_range
+        rets = close.pct_change()
+        z_returns = (rets - rets.rolling(factor).mean()) / rets.rolling(factor).std()
+        delta_close = close.diff()
+        z_delta = (delta_close - delta_close.rolling(factor).mean()) / delta_close.rolling(factor).std()
+        raw = pd.Series(np.where(greater, z_returns, z_delta), index=df.index)
+        raw = raw.ffill().fillna(0)
+        signal = np.tanh(raw / raw.rolling(window).std().replace(0, np.nan))
+        return -signal * -1
+
 class Domains:
     @staticmethod
     def compute_vwap(df, window=200):
@@ -12834,9 +13431,15 @@ class Domains:
             'alpha_quanta_randomizer_168_tanh', 'alpha_quanta_randomizer_176_rank', 'alpha_quanta_randomizer_176_tanh', 'alpha_quanta_randomizer_176_zscore', 'alpha_quanta_randomizer_192_rank',
             'alpha_quanta_randomizer_192_tanh', 'alpha_quanta_randomizer_192_zscore', 'alpha_quanta_randomizer_194_rank', 'alpha_quanta_randomizer_194_tanh', 'alpha_quanta_randomizer_194_zscore',
             'alpha_quanta_randomizer_240_tanh', 'alpha_quanta_randomizer_240_zscore', 'alpha_quanta_randomizer_269_rank', 'alpha_quanta_randomizer_269_wf', 'alpha_quanta_randomizer_269_zscore', 
-            'alpha_quanta_randomizer_293_tanh', 'alpha_quanta_randomizer_307_rank', 'alpha_quanta_randomizer_307_sign'
+            'alpha_quanta_randomizer_293_tanh', 'alpha_quanta_randomizer_307_rank', 'alpha_quanta_randomizer_307_sign',
 
-
+            "alpha_factorminer_vn_007_tanh", "alpha_factorminer_vn_044_wf", "alpha_factorminer_vn_068_rank", "alpha_factorminer_vn_068_tanh", "alpha_factorminer_vn_068_wf",
+            "alpha_factorminer_vn_068_zscore", "alpha_factorminer_vn_075_rank", "alpha_factorminer_vn_075_tanh", "alpha_factorminer_vn_075_zscore", "alpha_factorminer_vn_112_rank",
+            "alpha_factorminer_vn_112_tanh", "alpha_factorminer_vn_112_zscore", "alpha_factorminer_vn_121_tanh", "alpha_factorminer_vn_121_wf", "alpha_factorminer_vn_121_zscore",
+            "alpha_factorminer_vn_144_tanh", "alpha_factorminer_vn_163_wf", "alpha_factorminer_vn_175_rank", "alpha_factorminer_vn_175_tanh", "alpha_factorminer_vn_175_zscore",
+            "alpha_factorminer_vn_206_rank", "alpha_factorminer_vn_206_tanh", "alpha_factorminer_vn_206_zscore", "alpha_factorminer_vn_246_rank", "alpha_factorminer_vn_246_tanh",
+            "alpha_factorminer_vn_246_zscore", "alpha_factorminer_vn_259_tanh", "alpha_factorminer_vn_259_zscore", "alpha_factorminer_vn_282_tanh", "alpha_factorminer_vn_282_zscore",
+            "alpha_factorminer_vn_284_rank", "alpha_factorminer_vn_284_tanh", "alpha_factorminer_vn_284_zscore", "alpha_factorminer_vn_297_rank", "alpha_factorminer_vn_297_tanh",
 
         ]
 
